@@ -18,7 +18,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsc && echo \"✓ Build complete: $(find dist -name '*.js' | wc -l) files compiled to dist/\"",
+    "build": "node scripts/build.js",
     "dev": "tsc --watch",
     "start": "node dist/cli.js",
     "test": "vitest run",
