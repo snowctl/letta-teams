@@ -274,8 +274,9 @@ async function deleteAgentFromServer(agentId: string): Promise<void> {
  * Detect if we're connected to Letta Cloud
  */
 function isLettaCloud(): boolean {
-  const baseUrl = process.env.LETTA_BASE_URL || "https://api.letta.com";
-  return baseUrl.includes("api.letta.com");
+  const baseUrl = process.env.LETTA_BASE_URL;
+  // Letta Cloud if no custom base URL, or explicitly set to api.letta.com
+  return !baseUrl || baseUrl === "https://api.letta.com";
 }
 
 /**
