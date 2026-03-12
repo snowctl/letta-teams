@@ -39,3 +39,11 @@ docs/
 letta-code/
 letta-code-sdk/
 letta-node/
+
+# Local agent/skill files
+.agents/
+.skills/
+skills-lock.json
+
+# Letta Code temp files
+C:\\Users\\*

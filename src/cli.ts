@@ -53,6 +53,7 @@ import {
 } from "./ipc.js";
 import { displayDashboard } from "./dashboard.js";
 import { registerCommands } from "./commands/index.js";
+import { launchTui } from "./tui/index.js";
 
 // Get version from package.json
 const require = createRequire(import.meta.url);
@@ -73,6 +74,9 @@ program
 
 // Global --json flag
 program.option("--json", "Output as JSON instead of human-readable format");
+
+// Global --tui flag for dashboard
+program.option("--tui", "Launch interactive TUI dashboard");
 
 registerCommands(program);
 
@@ -1238,4 +1242,9 @@ function handleError(error: unknown, jsonMode: boolean): void {
 // Ensure .lteams directory exists on startup
 ensureLteamsDir();
 
-program.parse();
+// Check for --tui flag before parsing
+if (process.argv.includes('--tui')) {
+  launchTui();
+} else {
+  program.parse();
+}
