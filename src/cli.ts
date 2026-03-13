@@ -730,13 +730,19 @@ program
     if (globalOpts.json) {
       console.log(JSON.stringify(state, null, 2));
     } else {
+      const memfsStatus = state.memfsEnabled === false
+        ? 'disabled'
+        : state.memfsLastSyncedAt
+          ? `enabled (last synced: ${state.memfsLastSyncedAt})`
+          : 'enabled';
+
       console.log(`Teammate: ${state.name}`);
       console.log(`  Agent ID: ${state.agentId}`);
       if (state.conversationId) {
         console.log(`  Conversation ID: ${state.conversationId}`);
       }
       if (state.model) console.log(`  Model: ${state.model}`);
-      console.log(`  Memfs: ${state.memfsEnabled ? `enabled (${state.memfsStartup})` : 'disabled'}`);
+      console.log(`  Memfs status: ${memfsStatus}`);
       console.log(`  Status: ${state.status}`);
       if (state.todo) console.log(`  Todo: ${state.todo}`);
       console.log(`  Created: ${state.createdAt}`);

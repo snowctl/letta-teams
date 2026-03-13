@@ -69,6 +69,7 @@ const AgentDetailsTab: React.FC<AgentDetailsTabProps> = ({ teammates, selectedIn
 const AgentCard: React.FC<{ agent: TeammateState }> = ({ agent }) => {
   const statusColor = getStatusColor(agent.status);
   const icon = getStatusIcon(agent.status);
+  const memfsEnabled = agent.memfsEnabled !== false;
 
   return (
     <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
@@ -95,11 +96,15 @@ const AgentCard: React.FC<{ agent: TeammateState }> = ({ agent }) => {
           <Text>{truncate(agent.conversationId, 40)}</Text>
         </Box>
       )}
-      {agent.memfsEnabled && (
+      <Box>
+        <Text dimColor>Memfs status: </Text>
+        <Text color={memfsEnabled ? 'green' : 'gray'}>{memfsEnabled ? 'enabled' : 'disabled'}</Text>
+      </Box>
+      {memfsEnabled && agent.memfsLastSyncedAt && (
         <Box>
-          <Text dimColor>Memfs: </Text>
-          <Text color="green">enabled</Text>
-          {agent.memfsStartup && <Text dimColor> ({agent.memfsStartup})</Text>}
+          <Text dimColor>Last synced: </Text>
+          <Text>{formatRelativeTime(agent.memfsLastSyncedAt)}</Text>
+          <Text dimColor> ({agent.memfsLastSyncedAt})</Text>
         </Box>
       )}
 
