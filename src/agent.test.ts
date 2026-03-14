@@ -45,10 +45,14 @@ vi.mock("@letta-ai/letta-code-sdk", () => ({
 
 // Mock the store module
 vi.mock("./store.js", () => ({
+  createConversationTarget: vi.fn(),
   getApiKey: vi.fn(),
+  getConversationTarget: vi.fn(),
+  getRootConversationId: vi.fn(),
   teammateExists: vi.fn(),
   saveTeammate: vi.fn(),
   loadTeammate: vi.fn(),
+  updateConversationTarget: vi.fn(),
   updateStatus: vi.fn(),
   listTeammates: vi.fn(),
   updateTeammate: vi.fn(),
@@ -264,7 +268,17 @@ describe("Agent Module", () => {
     beforeEach(() => {
       vi.mocked(store.getApiKey).mockReturnValue("test-key");
       vi.mocked(store.loadTeammate).mockReturnValue(mockTeammate);
+      vi.mocked(store.getConversationTarget).mockImplementation((rootName: string, targetName: string) => ({
+        name: targetName,
+        rootName,
+        kind: "root",
+        conversationId: mockTeammate.conversationId!,
+        createdAt: mockTeammate.createdAt,
+        lastActiveAt: mockTeammate.lastUpdated,
+        status: "idle",
+      }));
       vi.mocked(store.updateStatus).mockImplementation(() => mockTeammate);
+      vi.mocked(store.updateConversationTarget).mockImplementation(() => null);
     });
 
     it("should create a separate init conversation", async () => {
@@ -322,6 +336,7 @@ describe("Agent Module", () => {
         ...mockTeammate,
         conversationId: undefined,
       });
+      vi.mocked(store.getConversationTarget).mockReturnValue(null);
       
       await expect(messageTeammate("alice", "Hello!")).rejects.toThrow(
         "no conversation ID"

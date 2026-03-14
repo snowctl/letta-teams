@@ -12,13 +12,18 @@ import type { TeammateState, MemfsStartup } from "./types.js";
 import { MEMFS_STARTUP_VALUES } from "./types.js";
 import { getMemoryFilesystemRoot } from "./memfs.js";
 import {
+  createConversationTarget,
+  getConversationTarget,
+  getRootConversationId,
   loadTeammate,
   saveTeammate,
   teammateExists,
+  updateConversationTarget,
   updateStatus,
   listTeammates,
   getApiKey,
 } from "./store.js";
+import { formatTargetName, parseTargetName, validateForkName, validateRootName } from './targets.js';
 
 // ═══════════════════════════════════════════════════════════════
 // MUTEX FOR CONCURRENT ACCESS
@@ -126,6 +131,70 @@ async function withTeammateLock<T>(name: string, fn: () => Promise<T>): Promise<
   teammateMutex.set(name, newQueue);
 
   return newQueue as Promise<T>;
+}
+
+export async function forkTeammate(rootName: string, forkName: string): Promise<TeammateState> {
+  validateRootName(rootName);
+  validateForkName(forkName);
+  checkApiKey();
+
+  const state = loadTeammate(rootName);
+  if (!state) {
+    throw new Error(`Teammate '${rootName}' not found`);
+  }
+
+  const rootConversationId = getRootConversationId(state);
+  if (!rootConversationId) {
+    throw new Error(`Teammate '${rootName}' has no root conversation ID. Re-spawn the teammate.`);
+  }
+
+  const targetName = formatTargetName(rootName, forkName);
+  if (getConversationTarget(rootName, targetName)) {
+    throw new Error(`Target '${targetName}' already exists`);
+  }
+
+  return withTeammateLock(rootName, async () => {
+    await using session = createSession(state.agentId, {
+      permissionMode: 'bypassPermissions',
+      disallowedTools: ['AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'],
+      memfs: state.memfsEnabled,
+      memfsStartup: state.memfsStartup,
+    });
+
+    await session.send('You are online. Await instructions.');
+
+    for await (const msg of session.stream()) {
+      if (msg.type === 'result') {
+        const conversationId = session.conversationId ?? undefined;
+        if (!conversationId) {
+          throw new Error(`Failed to create fork '${targetName}': no conversation ID received from Letta API`);
+        }
+
+        const now = new Date().toISOString();
+        createConversationTarget(rootName, {
+          forkName,
+          conversationId,
+          parentTargetName: rootName,
+          parentConversationId: rootConversationId,
+          createdAt: now,
+          lastActiveAt: now,
+          status: 'idle',
+        });
+
+        const updated = loadTeammate(rootName);
+        if (!updated) {
+          throw new Error(`Teammate '${rootName}' disappeared while creating fork '${targetName}'`);
+        }
+        return updated;
+      }
+
+      if (msg.type === 'error') {
+        throw new Error(msg.message);
+      }
+    }
+
+    throw new Error(`Failed to create fork '${targetName}'`);
+  });
 }
 
 /**
@@ -239,15 +308,7 @@ export interface SpawnOptions {
  * @throws Error if name is invalid
  */
 export function validateName(name: string): void {
-  if (!name || name.trim().length === 0) {
-    throw new Error("Teammate name cannot be empty");
-  }
-  if (name.length > 64) {
-    throw new Error("Teammate name must be 64 characters or less");
-  }
-  if (/[<>:"/\\|?*\x00-\x1f]/.test(name)) {
-    throw new Error("Teammate name contains invalid characters");
-  }
+  validateRootName(name);
 }
 
 /**
@@ -462,8 +523,20 @@ letta-teams update-progress ${name} --done
       role,
       agentId,
       conversationId,
+      mainConversationId: conversationId,
       model,
       spawnPrompt: options.spawnPrompt,
+      targets: [
+        {
+          name,
+          rootName: name,
+          kind: 'root',
+          conversationId,
+          createdAt: now,
+          lastActiveAt: now,
+          status: 'idle',
+        },
+      ],
       memfsEnabled,
       memfsStartup: options.memfsStartup,
       memfsMemoryDir: memfsEnabled ? getMemoryFilesystemRoot(agentId) : undefined,
@@ -585,25 +658,50 @@ export async function messageTeammate(
   options: MessageOptions = {}
 ): Promise<string> {
   const { onEvent } = options;
+  const parsed = parseTargetName(name);
+  const rootName = parsed.rootName;
+  const targetName = parsed.fullName;
 
   // Validate first (fail fast before acquiring lock)
-  const state = loadTeammate(name);
+  const state = loadTeammate(rootName);
   if (!state) {
-    throw new Error(`Teammate '${name}' not found`);
+    throw new Error(`Teammate '${rootName}' not found`);
   }
 
   checkApiKey();
 
-  if (!state.conversationId) {
-    throw new Error(`Teammate '${name}' has no conversation ID. Re-spawn the teammate.`);
+  const target = parsed.isRoot
+    ? (getConversationTarget(rootName, rootName) ?? (state.conversationId
+        ? {
+            name: rootName,
+            rootName,
+            kind: 'root' as const,
+            conversationId: state.conversationId,
+            createdAt: state.createdAt,
+            lastActiveAt: state.lastUpdated,
+            status: state.status === 'error' ? 'error' : state.status === 'working' ? 'running' : 'idle',
+          }
+        : null))
+    : getConversationTarget(rootName, targetName);
+
+  if (!target?.conversationId) {
+    if (parsed.isRoot) {
+      throw new Error(`Teammate '${rootName}' has no conversation ID. Re-spawn the teammate.`);
+    }
+    throw new Error(`Target '${targetName}' not found`);
   }
 
-  // Store conversationId in a const to satisfy TypeScript's type narrowing
-  const conversationId = state.conversationId;
+  const conversationId = target.conversationId;
 
-  // Acquire lock for this teammate - ensures sequential processing
-  return withTeammateLock(name, async () => {
-    updateStatus(name, "working");
+  // Acquire lock for the root teammate - ensures sequential processing
+  return withTeammateLock(rootName, async () => {
+    updateStatus(rootName, "working");
+    if (!parsed.isRoot) {
+      updateConversationTarget(rootName, targetName, {
+        status: 'running',
+        lastActiveAt: new Date().toISOString(),
+      });
+    }
 
     try {
       // Use resumeSession with stored conversation ID for persistent memory
@@ -642,21 +740,37 @@ export async function messageTeammate(
         }
 
         if (msg.type === "result") {
-          updateStatus(name, "done");
+          updateStatus(rootName, "done");
+          updateConversationTarget(rootName, targetName, {
+            status: 'idle',
+            lastActiveAt: new Date().toISOString(),
+          });
           // Use accumulated text as fallback if result is empty
           return msg.result || accumulatedText || "";
         }
         if (msg.type === "error") {
-          updateStatus(name, "error");
+          updateStatus(rootName, "error");
+          updateConversationTarget(rootName, targetName, {
+            status: 'error',
+            lastActiveAt: new Date().toISOString(),
+          });
           throw new Error(msg.message);
         }
       }
 
-      updateStatus(name, "done");
+      updateStatus(rootName, "done");
+      updateConversationTarget(rootName, targetName, {
+        status: 'idle',
+        lastActiveAt: new Date().toISOString(),
+      });
       // Fallback to accumulated text if stream ended without explicit result
       return accumulatedText || "";
     } catch (error) {
-      updateStatus(name, "error");
+      updateStatus(rootName, "error");
+      updateConversationTarget(rootName, targetName, {
+        status: 'error',
+        lastActiveAt: new Date().toISOString(),
+      });
       throw error;
     }
   });

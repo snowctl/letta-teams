@@ -102,7 +102,18 @@ describe("Store Module", () => {
     it("should load a teammate", () => {
       saveTeammate(mockTeammate);
       const loaded = loadTeammate("test-agent");
-      expect(loaded).toEqual(mockTeammate);
+      expect(loaded).toMatchObject({
+        ...mockTeammate,
+        mainConversationId: mockTeammate.conversationId,
+      });
+      expect(loaded?.targets).toEqual([
+        expect.objectContaining({
+          name: "test-agent",
+          rootName: "test-agent",
+          kind: "root",
+          conversationId: "conv-123",
+        }),
+      ]);
     });
 
     it("should return null for non-existent teammate", () => {

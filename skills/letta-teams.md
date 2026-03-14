@@ -3,7 +3,7 @@ name: letta-teams
 description: Orchestrate teams of stateful Letta agents. Spawn teammates, broadcast messages, dispatch different tasks, and coordinate parallel work across multiple AI agents.
 ---
 # letta-teams: Multi-Agent Orchestration
-`letta-teams` is a CLI for orchestrating teams of stateful Letta agents. It enables you to spawn multiple specialized agents, message them individually or in parallel, and monitor their progress through a dashboard.
+`letta-teams` is a CLI for orchestrating teams of stateful Letta agents. It enables you to spawn multiple specialized agents, create conversation forks on them, message them individually or in parallel, and monitor their progress through a dashboard.
 
 ## Quick Reference
 ```bash
@@ -20,17 +20,25 @@ letta-teams daemon --stop               # Stop daemon
 # Spawn teammates
 letta-teams spawn <name> <role>         # Create a new teammate
 letta-teams spawn <name> <role> --model <model>  # Use specific model
+letta-teams spawn <name> <role> --spawn-prompt <text>  # Specialize background init
+letta-teams spawn <name> <role> --skip-init  # Skip memory init
+letta-teams spawn <name> <role> --no-memfs   # Disable memfs
 letta-teams spawn <name> <role> --force # Overwrite existing
+letta-teams reinit <name>                # Re-run background init
+letta-teams reinit <name> --wait         # Wait for init to finish
 
-# Message teammates
-letta-teams message <name> <prompt>     # Send message (fire and forget)
-letta-teams message <name> <prompt> -w  # Wait for completion
-letta-teams message <name> <prompt> -wv # Wait + show tool calls
+# Conversation forks / targets
+letta-teams fork <name> <forkName>       # Create a new conversation fork
+
+# Message teammates or targets
+letta-teams message <target> <prompt>     # Send message (fire and forget)
+letta-teams message <target> <prompt> -w  # Wait for completion
+letta-teams message <target> <prompt> -wv # Wait + show tool calls
 letta-teams broadcast <prompt>          # Send to all teammates
-letta-teams broadcast <prompt> -w       # Broadcast and wait
-letta-teams broadcast --to "A,B" <msg>  # Send to specific teammates
-letta-teams dispatch A="task1" B="task2" # Different messages to different teammates
-letta-teams dispatch A="task1" B="task2" -w  # Dispatch and wait
+letta-teams broadcast <prompt> -w       # Broadcast and wait on all root teammates
+letta-teams broadcast --to "A,B/review" <msg>  # Send to specific teammates or forks
+letta-teams dispatch A="task1" B/review="task2" # Different messages to different targets
+letta-teams dispatch A="task1" B/review="task2" -w  # Dispatch and wait
 
 # Task management
 letta-teams tasks                       # List all active tasks
@@ -45,7 +53,7 @@ letta-teams status                      # Quick status summary
 letta-teams dashboard                   # Show current activity
 letta-teams dashboard --limit 20        # Show more items
 letta-teams dashboard --verbose         # Show full task results
-letta-teams info <name>                 # Detailed teammate info
+letta-teams info <target>               # Detailed teammate/target info
 
 # Model management
 letta-teams model <name>                # Get teammate's model
@@ -77,6 +85,15 @@ A **teammate** is a stateful Letta agent with:
 - A name (unique identifier)
 - A role (defines their specialty/behavior)
 - Access to file operations, shell commands, web search, and memory tools
+
+### Conversation Targets
+Each teammate has a **root target** named after the teammate, like `backend`.
+
+Additional targets can exist on the same teammate:
+- **memory/init target** used for background initialization
+- **fork targets** like `backend/review` or `backend/bugfix`
+
+Use fork targets when you want separate conversation threads without spawning a whole new teammate.
 
 ### Stateful Memory
 Teammates remember conversations. Each teammate has:
@@ -119,6 +136,18 @@ letta-teams spawn reviewer "Code reviewer who catches bugs and suggests improvem
 # Use a specific model
 letta-teams spawn architect "System architect" --model claude-sonnet-4-20250514
 
+# Add specialization for background memory initialization
+letta-teams spawn architect "System architect" --spawn-prompt "Focus on system design reviews and API boundaries"
+
+# Skip initialization
+letta-teams spawn architect "System architect" --skip-init
+
+# Disable memfs
+letta-teams spawn architect "System architect" --no-memfs
+
+# Re-run initialization later
+letta-teams reinit architect --prompt "Refresh memory around current backend architecture"
+
 # Overwrite existing teammate
 letta-teams spawn dev "Developer" --force
 ```
@@ -142,6 +171,9 @@ letta-teams message developer "Implement auth" --wait
 
 # Wait and show tool calls
 letta-teams message developer "Read package.json" --wait --verbose
+
+# Send to a fork target
+letta-teams message developer/review "Review the auth implementation for edge cases"
 ```
 
 Output with `--wait --verbose` shows tool calls:
@@ -150,6 +182,17 @@ Output with `--wait --verbose` shows tool calls:
     ✓ Read 35 lines
 [developer] Here's the package.json content...
 ```
+
+### Conversation Forks
+Create a separate conversation thread on the same teammate:
+
+```bash
+letta-teams fork developer review
+letta-teams message developer/review "Review auth changes with a security lens"
+letta-teams info developer/review
+```
+
+Use forks when you want the same teammate to handle parallel threads with isolated conversation history.
 
 ### Broadcasting
 Send the same message to all or specific teammates in parallel:
@@ -161,8 +204,8 @@ letta-teams broadcast "Review the changes in src/auth.ts"
 # Wait for all to complete
 letta-teams broadcast "Review the changes" --wait
 
-# Send to specific teammates
-letta-teams broadcast --to "Alice,Bob" "Review this PR"
+# Send to specific teammates or fork targets
+letta-teams broadcast --to "Alice,Bob/review" "Review this PR"
 
 # Exclude specific teammates
 letta-teams broadcast "Analyze this PR" --exclude lead,reviewer
@@ -172,11 +215,11 @@ letta-teams broadcast "Analyze this PR" --exclude lead,reviewer
 Send different tasks to different teammates in parallel:
 
 ```bash
-# Format: name=message or name:"message with spaces"
-letta-teams dispatch Alice="review the backend code" Bob="review the frontend code"
+# Format: target=message or target:"message with spaces"
+letta-teams dispatch Alice="review the backend code" Bob/review="review the frontend code"
 
 # Wait for all to complete
-letta-teams dispatch Alice="review backend" Bob="review frontend" --wait
+letta-teams dispatch Alice="review backend" Bob/review="review frontend" --wait
 
 # Assign different files to different teammates
 letta-teams dispatch Alice="read src/auth.ts" Bob="read src/api.ts" Charlie="read src/db.ts"
@@ -278,8 +321,9 @@ letta-teams dashboard
 # Dashboard with more items and full results
 letta-teams dashboard --limit 20 --verbose
 
-# Detailed info on specific teammate
+# Detailed info on specific teammate or target
 letta-teams info developer
+letta-teams info developer/review
 ```
 
 ## Model Management

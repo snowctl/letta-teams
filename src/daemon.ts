@@ -10,6 +10,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import {
+  forkTeammate,
   messageTeammate,
   spawnTeammate,
   checkApiKey,
@@ -25,11 +26,13 @@ import {
   getGlobalAuthDir,
   ensureGlobalAuthDir,
   setProjectDir,
+  getConversationTarget,
   loadTeammate,
   updateTeammate,
 } from "./store.js";
-import type { DaemonMessage, DaemonResponse, TaskState, TeammateState } from "./types.js";
+import type { ConversationTargetState, DaemonMessage, DaemonResponse, TaskState, TeammateState } from "./types.js";
 import { buildInitPrompt, buildReinitPrompt, parseInitResult } from "./init.js";
+import { parseTargetName } from './targets.js';
 import {
   scaffoldTeammateMemfs,
   updateTeammateInitScaffold,
@@ -261,15 +264,39 @@ async function handleMessage(msg: DaemonMessage): Promise<DaemonResponse> {
       // Set project directory for finding teammate files
       setProjectDir(msg.projectDir);
 
+      const parsed = parseTargetName(msg.targetName);
+
       // Create task record
-      const task = createTask(msg.teammateName, msg.message);
+      const task = createTask(msg.targetName, msg.message, {
+        rootTeammateName: parsed.rootName,
+        targetName: msg.targetName,
+      });
 
       // Start processing in background (don't await)
-      processTask(task.id, msg.teammateName, msg.message).catch((error) => {
+      processTask(task.id, msg.targetName, msg.message).catch((error) => {
         console.error(`Task ${task.id} failed:`, error);
       });
 
       return { type: "accepted", taskId: task.id };
+    }
+
+    case 'fork': {
+      setProjectDir(msg.projectDir);
+
+      try {
+        checkApiKey();
+        const teammate = await forkTeammate(msg.rootName, msg.forkName);
+        const targetName = `${msg.rootName}/${msg.forkName}`;
+        const target = teammate.targets?.find((entry: ConversationTargetState) => entry.name === targetName);
+        if (!target) {
+          return { type: 'error', message: `Fork '${targetName}' was created but not saved` };
+        }
+
+        return { type: 'forked', teammate, target };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        return { type: 'error', message: errorMessage };
+      }
     }
 
     case "spawn": {
@@ -312,9 +339,9 @@ async function handleMessage(msg: DaemonMessage): Promise<DaemonResponse> {
       setProjectDir(msg.projectDir);
       checkApiKey();
 
-      const teammate = loadTeammate(msg.teammateName);
+      const teammate = loadTeammate(msg.rootName);
       if (!teammate) {
-        return { type: "error", message: `Teammate '${msg.teammateName}' not found` };
+        return { type: "error", message: `Teammate '${msg.rootName}' not found` };
       }
 
       const taskId = await startBackgroundInit(teammate, {
@@ -370,7 +397,7 @@ async function handleMessage(msg: DaemonMessage): Promise<DaemonResponse> {
  */
 async function processTask(
   taskId: string,
-  teammateName: string,
+  targetName: string,
   message: string
 ): Promise<void> {
   const startedAt = new Date().toISOString();
@@ -387,7 +414,7 @@ async function processTask(
     checkApiKey();
 
     // Run the message through the agent module with event tracking
-    const result = await messageTeammate(teammateName, message, {
+    const result = await messageTeammate(targetName, message, {
       onEvent: (event) => {
         if (event.type === "tool_call") {
           // Create a brief input summary
@@ -427,6 +454,10 @@ async function processTask(
       result,
       completedAt: new Date().toISOString(),
       toolCalls,
+      conversationId: getConversationTarget(
+        parseTargetName(targetName).rootName,
+        parseTargetName(targetName).fullName,
+      )?.conversationId,
     });
   } catch (error) {
     const errorMessage =

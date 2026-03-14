@@ -15,7 +15,10 @@ import ora from "ora";
 import Letta from "@letta-ai/letta-client";
 import {
   ensureLteamsDir,
+  getConversationTarget,
+  listConversationTargets,
   teammateExists,
+  targetExists,
   removeTeammate,
   listTeammates,
   loadTeammate,
@@ -47,11 +50,13 @@ import {
   getDaemonLogPath,
   ensureDaemonRunning,
   dispatchTask,
+  forkTeammateViaDaemon,
   waitForTask,
   spawnTeammateViaDaemon,
   reinitTeammateViaDaemon,
   isDaemonRunning,
 } from "./ipc.js";
+import { parseTargetName, validateTargetName } from './targets.js';
 import { displayDashboard } from "./dashboard.js";
 import { registerCommands } from "./commands/index.js";
 import { launchTui } from "./tui/index.js";
@@ -187,12 +192,19 @@ program
 
 program
   .command("spawn <name> <role>")
-  .description("Create a new teammate agent with default Letta Code configuration")
-  .option("--model <model>", "Model to use (e.g., claude-sonnet-4-20250514, zai/glm-5)")
-  .option("--spawn-prompt <text>", "Extra specialization prompt used for background memory initialization")
-  .option("--skip-init", "Skip background memory initialization")
+  .description("Create a teammate with a root conversation target and optional background memory init")
+  .option("--model <model>", "Model to use (e.g. claude-sonnet-4-20250514, zai/glm-5)")
+  .option("--spawn-prompt <text>", "Extra specialization prompt passed to background memory initialization")
+  .option("--skip-init", "Skip background memory initialization entirely")
   .option("--no-memfs", "Disable memfs for this teammate")
-  .option("--force", "Overwrite existing teammate with same name")
+  .option("--force", "Overwrite existing teammate with the same name")
+  .addHelpText('after', `
+
+Examples:
+  $ letta-teams spawn backend "Backend engineer"
+  $ letta-teams spawn backend "Backend engineer" --spawn-prompt "Focus on auth systems and migrations"
+  $ letta-teams spawn backend "Backend engineer" --skip-init --no-memfs
+`)
   .action(async (name: string, role: string, options) => {
     const globalOpts = program.opts();
     try {
@@ -245,6 +257,12 @@ program
   .description("Re-run non-destructive background memory initialization for a teammate")
   .option("--prompt <text>", "Extra instructions for the reinit pass")
   .option("-w, --wait", "Wait for reinit to complete and show result")
+  .addHelpText('after', `
+
+Examples:
+  $ letta-teams reinit backend
+  $ letta-teams reinit backend --prompt "Refresh memory around the current auth architecture" --wait
+`)
   .action(async (name: string, options) => {
     const globalOpts = program.opts();
 
@@ -288,17 +306,65 @@ program
   });
 
 // ═══════════════════════════════════════════════════════════════
+// FORK COMMAND
+// ═══════════════════════════════════════════════════════════════
+
+program
+  .command('fork <name> <forkName>')
+  .description('Create a new conversation target like <name>/<forkName> on an existing teammate')
+  .addHelpText('after', `
+
+Examples:
+  $ letta-teams fork backend review
+  $ letta-teams message backend/review "Review the auth design"
+`)
+  .action(async (name: string, forkName: string) => {
+    const globalOpts = program.opts();
+
+    try {
+      validateName(name);
+
+      if (!teammateExists(name)) {
+        handleError(new Error(`Teammate '${name}' not found`), globalOpts.json);
+        return;
+      }
+
+      await ensureDaemonRunning();
+      const state = await forkTeammateViaDaemon(name, forkName);
+      const targetName = `${name}/${forkName}`;
+      const target = state.targets?.find((entry) => entry.name === targetName);
+
+      if (globalOpts.json) {
+        console.log(JSON.stringify({ teammate: state, target }, null, 2));
+      } else {
+        console.log(`✓ Created fork '${targetName}'`);
+        if (target?.conversationId) {
+          console.log(`  Conversation ID: ${target.conversationId}`);
+        }
+      }
+    } catch (error) {
+      handleError(error, globalOpts.json);
+    }
+  });
+
+// ═══════════════════════════════════════════════════════════════
 // MESSAGE COMMAND
 // ═══════════════════════════════════════════════════════════════
 
 program
   .command("message")
   .alias("msg")
-  .description("Send a message to a teammate. Uses daemon for background processing.")
-  .argument("<name>", "Name of the teammate")
+  .description("Send a message to a root teammate target or fork target via the daemon")
+  .argument("<name>", "Target name, e.g. backend or backend/review")
   .argument("[prompt...]", "Message to send (all remaining arguments joined together)")
   .option("-w, --wait", "Wait for task to complete and show result")
   .option("-v, --verbose", "Show tool calls and intermediate steps (requires --wait)")
+  .addHelpText('after', `
+
+Examples:
+  $ letta-teams message backend "Implement OAuth login"
+  $ letta-teams message backend/review "Review the OAuth design" --wait
+`)
   .action(async (name: string, promptParts: string[], options) => {
     const globalOpts = program.opts();
     const prompt = promptParts.join(" ");
@@ -309,11 +375,11 @@ program
     }
 
     try {
-      validateName(name);
+      validateTargetName(name);
 
-      // Check if teammate exists (fail fast)
-      if (!teammateExists(name)) {
-        handleError(new Error(`Teammate '${name}' not found`), globalOpts.json);
+      // Check if target exists (fail fast)
+      if (!targetExists(name)) {
+        handleError(new Error(`Target '${name}' not found`), globalOpts.json);
         return;
       }
 
@@ -360,10 +426,16 @@ program
 
 program
   .command("broadcast [promptParts...]")
-  .description("Send a message to teammates in parallel via daemon. Use --to for specific names, or omit to message all.")
-  .option("--to <names>", "Comma-separated list of teammate names to message")
-  .option("--exclude <names>", "Comma-separated list of teammate names to exclude")
+  .description("Send a message to teammates or specific targets in parallel via daemon. Use --to for specific names, or omit to message all roots.")
+  .option("--to <names>", "Comma-separated list of teammate or target names to message")
+  .option("--exclude <names>", "Comma-separated list of teammate or target names to exclude")
   .option("-w, --wait", "Wait for all tasks to complete and show results")
+  .addHelpText('after', `
+
+Examples:
+  $ letta-teams broadcast "Summarize current risks"
+  $ letta-teams broadcast --to "backend,backend/review,tests" "Summarize current risks" --wait
+`)
   .action(async (promptParts: string[], options) => {
     const globalOpts = program.opts();
     try {
@@ -382,19 +454,20 @@ program
       }
 
       // Get list of teammates to message
-      let teammates = listTeammates();
+      let targets = listTeammates().map((t) => t.name);
       if (targetNames && targetNames.length > 0) {
         for (const name of targetNames) {
-          if (!teammates.some((t) => t.name === name)) {
-            handleError(new Error(`Teammate '${name}' not found`), globalOpts.json);
+          validateTargetName(name);
+          if (!targetExists(name)) {
+            handleError(new Error(`Target '${name}' not found`), globalOpts.json);
             return;
           }
         }
-        teammates = teammates.filter((t) => targetNames.includes(t.name));
+        targets = targetNames;
       }
-      teammates = teammates.filter((t) => !exclude.includes(t.name));
+      targets = targets.filter((target) => !exclude.includes(target));
 
-      if (teammates.length === 0) {
+      if (targets.length === 0) {
         handleError(new Error("No teammates to broadcast to"), globalOpts.json);
         return;
       }
@@ -405,9 +478,9 @@ program
       // Dispatch to all teammates
       const taskIds: { name: string; taskId: string }[] = [];
 
-      for (const teammate of teammates) {
-        const { taskId } = await dispatchTask(teammate.name, prompt);
-        taskIds.push({ name: teammate.name, taskId });
+      for (const target of targets) {
+        const { taskId } = await dispatchTask(target, prompt);
+        taskIds.push({ name: target, taskId });
       }
 
       if (options.wait) {
@@ -465,8 +538,18 @@ program
 
 program
   .command("dispatch [assignments...]")
-  .description("Send different messages to different teammates via daemon. Format: name=message or name:\"message with spaces\"")
+  .description("Send different messages to different teammate or fork targets via daemon")
   .option("-w, --wait", "Wait for all tasks to complete and show results")
+  .addHelpText('after', `
+
+Assignment formats:
+  target=message
+  target:"message with spaces"
+
+Examples:
+  $ letta-teams dispatch backend="Implement OAuth" tests="Add coverage"
+  $ letta-teams dispatch backend="Implement OAuth" backend/review="Review OAuth design" --wait
+`)
   .action(async (assignments: string[], options) => {
     const globalOpts = program.opts();
     try {
@@ -475,7 +558,7 @@ program
 
       for (const arg of assignments) {
         // Try name:"message" format first
-        const quotedMatch = arg.match(/^(\w+):"(.+)"$/);
+        const quotedMatch = arg.match(/^([^:=]+):"(.+)"$/);
         if (quotedMatch) {
           const [, name, message] = quotedMatch;
           messages.set(name, message);
@@ -483,7 +566,7 @@ program
         }
 
         // Try name=message format
-        const eqMatch = arg.match(/^(\w+)=(.+)$/);
+        const eqMatch = arg.match(/^([^=]+)=(.+)$/);
         if (eqMatch) {
           const [, name, message] = eqMatch;
           messages.set(name, message);
@@ -491,7 +574,7 @@ program
         }
 
         // Try name:message format (colon without quotes)
-        const colonMatch = arg.match(/^(\w+):(.+)$/);
+        const colonMatch = arg.match(/^([^:]+):(.+)$/);
         if (colonMatch) {
           const [, name, message] = colonMatch;
           messages.set(name, message);
@@ -511,6 +594,10 @@ program
       const taskIds: { name: string; taskId: string }[] = [];
 
       for (const [name, message] of messages) {
+        validateTargetName(name);
+        if (!targetExists(name)) {
+          throw new Error(`Target '${name}' not found`);
+        }
         const { taskId } = await dispatchTask(name, message);
         taskIds.push({ name, taskId });
       }
@@ -667,7 +754,7 @@ program
 
 program
   .command("list")
-  .description("List all teammates")
+  .description("List all teammates and any fork targets stored on them")
   .action(() => {
     const globalOpts = program.opts();
     const teammates = listTeammates();
@@ -685,6 +772,10 @@ program
         console.log(`  ${t.name}`);
         if (t.model) console.log(`    Model: ${t.model}`);
         console.log(`    Status: ${t.status}`);
+        const forks = listConversationTargets(t.name).filter((target) => target.name !== t.name);
+        if (forks.length > 0) {
+          console.log(`    Targets: ${forks.map((target) => target.name).join(', ')}`);
+        }
         if (t.todo) console.log(`    Todo: ${t.todo}`);
         console.log(`    Last updated: ${t.lastUpdated}`);
         console.log();
@@ -763,24 +854,38 @@ program
 
 program
   .command("info <name>")
-  .description("Show detailed info about a teammate")
+  .description("Show detailed info about a teammate or target")
+  .addHelpText('after', `
+
+Examples:
+  $ letta-teams info backend
+  $ letta-teams info backend/review
+`)
   .action((name: string) => {
     const globalOpts = program.opts();
     try {
-      validateName(name);
+      validateTargetName(name);
     } catch (error) {
       handleError(error as Error, globalOpts.json);
       return;
     }
-    const state = loadTeammate(name);
+
+    const parsed = parseTargetName(name);
+    const state = loadTeammate(parsed.rootName);
 
     if (!state) {
-      handleError(new Error(`Teammate '${name}' not found`), globalOpts.json);
+      handleError(new Error(`Teammate '${parsed.rootName}' not found`), globalOpts.json);
+      return;
+    }
+
+    const target = getConversationTarget(parsed.rootName, parsed.fullName);
+    if (!target) {
+      handleError(new Error(`Target '${parsed.fullName}' not found`), globalOpts.json);
       return;
     }
 
     if (globalOpts.json) {
-      console.log(JSON.stringify(state, null, 2));
+      console.log(JSON.stringify({ teammate: state, target }, null, 2));
     } else {
       const memfsStatus = state.memfsEnabled === false
         ? 'disabled'
@@ -788,17 +893,20 @@ program
           ? `enabled (last synced: ${state.memfsLastSyncedAt})`
           : 'enabled';
 
-      console.log(`Teammate: ${state.name}`);
+      console.log(`Target: ${target.name}`);
+      console.log(`  Root teammate: ${state.name}`);
       console.log(`  Agent ID: ${state.agentId}`);
-      if (state.conversationId) {
-        console.log(`  Conversation ID: ${state.conversationId}`);
+      if (target.conversationId) {
+        console.log(`  Conversation ID: ${target.conversationId}`);
       }
+      console.log(`  Kind: ${target.kind}`);
       if (state.model) console.log(`  Model: ${state.model}`);
       console.log(`  Memfs status: ${memfsStatus}`);
-      console.log(`  Status: ${state.status}`);
+      console.log(`  Status: ${target.status ?? state.status}`);
+      if (target.parentTargetName) console.log(`  Parent target: ${target.parentTargetName}`);
       if (state.todo) console.log(`  Todo: ${state.todo}`);
-      console.log(`  Created: ${state.createdAt}`);
-      console.log(`  Last updated: ${state.lastUpdated}`);
+      console.log(`  Created: ${target.createdAt}`);
+      console.log(`  Last active: ${target.lastActiveAt}`);
     }
   });
 
@@ -936,7 +1044,7 @@ program
 
 program
   .command("tasks")
-  .description("Show all active tasks (running/pending)")
+  .description("Show all active tasks (running/pending), including routed fork targets")
   .option("--json", "Output as JSON")
   .action((options) => {
     const globalOpts = program.opts();
@@ -973,7 +1081,7 @@ program
 
 program
   .command("task <id>")
-  .description("Show details of a specific task")
+  .description("Show details of a specific task, including its routed target when available")
   .option("--json", "Output as JSON")
   .option("--wait", "Poll until task completes")
   .option("--full", "Show full result (no truncation)")

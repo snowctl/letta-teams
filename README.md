@@ -60,7 +60,7 @@ Agents can then invoke `letta-teams` commands via the Bash tool.
 Load the skill file to give any Letta Code agent the ability to orchestrate teams:
 
 ```
-@skills/letta-teams.md
+@skills/letta-teams
 ```
 
 The skill provides:
@@ -79,6 +79,16 @@ A **teammate** is a stateful Letta agent with:
 - A unique name and specialized role
 - File operations, shell execution, and web research tools
 - No interactive prompts—they work autonomously
+
+### Conversation Targets
+
+Each teammate has a **root conversation target** named after the teammate itself, for example `backend`.
+
+Teammates can also have additional targets:
+- **init/memory target** used for background memory initialization
+- **fork targets** like `backend/review` or `backend/bugfix` for separate conversation threads on the same agent
+
+This lets you keep multiple threads of work isolated while still sharing the same underlying teammate identity.
 
 ### Background Daemon
 
@@ -99,9 +109,10 @@ Every message creates a **task** with:
 | Command | Purpose |
 |---------|---------|
 | `spawn <name> <role>` | Create a specialized teammate |
-| `message <name> <prompt>` | Send a task to one teammate |
+| `fork <name> <forkName>` | Create a new conversation fork for a teammate |
+| `message <target> <prompt>` | Send a task to one teammate or fork target |
 | `broadcast <prompt>` | Send the same task to all teammates |
-| `dispatch A="..." B="..."` | Send different tasks to different teammates |
+| `dispatch A="..." B="..."` | Send different tasks to different teammates or targets |
 | `tasks` | List active tasks |
 | `task <id>` | View task details and results |
 | `dashboard` | See team activity and progress |
@@ -134,8 +145,14 @@ letta-teams spawn api "Backend API developer specializing in REST"
 letta-teams spawn ui "Frontend React developer"
 letta-teams spawn tests "Test engineer who writes integration tests"
 
+# Optional: create a separate fork for focused review work
+letta-teams fork api review
+
 # 2. Dispatch parallel work
 letta-teams dispatch api="Build user CRUD endpoints" ui="Build user management page" tests="Write integration tests for user features"
+
+# Or target a fork explicitly
+letta-teams message api/review "Review the endpoint design for auth and rate limiting"
 
 # 3. Monitor progress
 letta-teams dashboard
@@ -149,9 +166,53 @@ letta-teams task <task-id> --wait
 
 ## Documentation
 
-- **[skills/letta-teams/SKILL.md](skills/letta-teams/SKILL.md.)** — Full command reference for agents
+- **[skills/letta-teams.md](skills/letta-teams.md)** — Full command reference for agents
 - **[Letta Documentation](https://docs.letta.com)** — Platform documentation
 - **[GitHub Issues](https://github.com/vedant020000/letta-teams/issues)** — Bug reports and feedback
+
+## Targeted Messaging and Forks
+
+You can message either a root teammate or a fork target.
+
+```bash
+# Root target
+letta-teams message backend "Implement OAuth login"
+
+# Create a forked conversation on the same teammate
+letta-teams fork backend review
+
+# Message the fork directly
+letta-teams message backend/review "Review the OAuth flow for security issues"
+
+# Broadcast to specific roots and forks
+letta-teams broadcast --to "backend,backend/review,tests" "Summarize current risks"
+
+# Dispatch different tasks to different targets
+letta-teams dispatch backend="Implement OAuth" backend/review="Review OAuth design" tests="Add coverage"
+```
+
+Use `letta-teams info <target>` to inspect either a root teammate or a fork target.
+
+## Spawn Initialization and Memfs
+
+New teammates can bootstrap memory in a separate background init conversation.
+
+```bash
+# Standard spawn: init runs in background, memfs enabled
+letta-teams spawn backend "Backend engineer"
+
+# Add richer specialization for background init
+letta-teams spawn backend "Backend engineer" --spawn-prompt "Focus on auth systems and database migrations"
+
+# Skip initialization entirely
+letta-teams spawn backend "Backend engineer" --skip-init
+
+# Disable memfs
+letta-teams spawn backend "Backend engineer" --no-memfs
+
+# Re-run non-destructive initialization later
+letta-teams reinit backend --prompt "Refresh the teammate's memory around the current auth architecture"
+```
 
 ## Support the Project
 

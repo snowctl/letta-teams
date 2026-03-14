@@ -6,7 +6,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as readline from "node:readline";
-import type { TeammateState, TeammateStatus, TaskState, TaskStatus } from "./types.js";
+import type {
+  ConversationTargetState,
+  TeammateState,
+  TeammateStatus,
+  TaskState,
+  TaskStatus,
+} from "./types.js";
+import { formatTargetName, getTargetKind, parseTargetName } from './targets.js';
 
 const LTEAMS_DIR = ".lteams";
 const AUTH_FILE = "authtoken.json";
@@ -200,6 +207,50 @@ export function teammateExists(name: string): boolean {
   return fs.existsSync(getTeammatePath(name));
 }
 
+function migrateTeammateState(name: string, state: TeammateState): TeammateState {
+  const rootConversationId = state.mainConversationId ?? state.conversationId;
+  const targets = [...(state.targets || [])];
+
+  if (rootConversationId && !targets.some((target) => target.name === name)) {
+    const createdAt = state.createdAt || new Date().toISOString();
+    const lastActiveAt = state.lastUpdated || createdAt;
+    targets.unshift({
+      name,
+      rootName: name,
+      kind: 'root',
+      conversationId: rootConversationId,
+      createdAt,
+      lastActiveAt,
+      status: state.status === 'error' ? 'error' : state.status === 'working' ? 'running' : 'idle',
+    });
+  }
+
+  if (state.initConversationId && !targets.some((target) => target.name === formatTargetName(name, 'memory'))) {
+    const createdAt = state.initStartedAt || state.createdAt || new Date().toISOString();
+    const lastActiveAt = state.initCompletedAt || state.lastUpdated || createdAt;
+    targets.push({
+      name: formatTargetName(name, 'memory'),
+      rootName: name,
+      forkName: 'memory',
+      kind: 'memory',
+      conversationId: state.initConversationId,
+      parentTargetName: name,
+      parentConversationId: rootConversationId,
+      createdAt,
+      lastActiveAt,
+      status: state.initStatus === 'error' ? 'error' : state.initStatus === 'running' ? 'running' : 'idle',
+    });
+  }
+
+  return {
+    ...state,
+    name,
+    conversationId: rootConversationId,
+    mainConversationId: rootConversationId,
+    targets,
+  };
+}
+
 /**
  * Load a teammate's state
  * Returns null if the file doesn't exist or is corrupted
@@ -213,9 +264,7 @@ export function loadTeammate(name: string): TeammateState | null {
   try {
     const content = fs.readFileSync(filePath, "utf-8");
     const state = JSON.parse(content) as TeammateState;
-    // Ensure name matches filename (defensive against corrupted/missing name in JSON)
-    state.name = name;
-    return state;
+    return migrateTeammateState(name, state);
   } catch {
     // Return null if JSON is corrupted
     return null;
@@ -231,6 +280,92 @@ export function saveTeammate(state: TeammateState): void {
   fs.writeFileSync(filePath, JSON.stringify(state, null, 2));
 }
 
+export function getRootConversationId(state: TeammateState): string | undefined {
+  return state.mainConversationId ?? state.conversationId;
+}
+
+export function getConversationTarget(rootName: string, targetName: string): ConversationTargetState | null {
+  const teammate = loadTeammate(rootName);
+  if (!teammate) return null;
+
+  const parsed = parseTargetName(targetName);
+  if (parsed.rootName !== rootName) {
+    return null;
+  }
+
+  return teammate.targets?.find((target) => target.name === parsed.fullName) || null;
+}
+
+export function listConversationTargets(rootName: string): ConversationTargetState[] {
+  return loadTeammate(rootName)?.targets || [];
+}
+
+export function targetExists(targetName: string): boolean {
+  const parsed = parseTargetName(targetName);
+  if (parsed.isRoot) {
+    return teammateExists(parsed.rootName);
+  }
+  return getConversationTarget(parsed.rootName, parsed.fullName) !== null;
+}
+
+export function createConversationTarget(
+  rootName: string,
+  target: Omit<ConversationTargetState, 'rootName' | 'kind' | 'name'> & { forkName: string; kind?: ConversationTargetState['kind'] }
+): ConversationTargetState | null {
+  const state = loadTeammate(rootName);
+  if (!state) return null;
+
+  const name = formatTargetName(rootName, target.forkName);
+  if (state.targets?.some((existing) => existing.name === name)) {
+    throw new Error(`Target '${name}' already exists`);
+  }
+
+  const created: ConversationTargetState = {
+    name,
+    rootName,
+    forkName: target.forkName,
+    kind: target.kind ?? getTargetKind(target.forkName),
+    conversationId: target.conversationId,
+    parentTargetName: target.parentTargetName,
+    parentConversationId: target.parentConversationId,
+    createdAt: target.createdAt,
+    lastActiveAt: target.lastActiveAt,
+    status: target.status,
+  };
+
+  const updated = {
+    ...state,
+    targets: [...(state.targets || []), created],
+  };
+  saveTeammate(updated);
+  return created;
+}
+
+export function updateConversationTarget(
+  rootName: string,
+  targetName: string,
+  updates: Partial<Pick<ConversationTargetState, 'conversationId' | 'lastActiveAt' | 'status' | 'parentTargetName' | 'parentConversationId'>>,
+): ConversationTargetState | null {
+  const state = loadTeammate(rootName);
+  if (!state || !state.targets) return null;
+
+  const index = state.targets.findIndex((target) => target.name === targetName);
+  if (index === -1) return null;
+
+  const nextTargets = [...state.targets];
+  nextTargets[index] = {
+    ...nextTargets[index],
+    ...updates,
+  };
+
+  saveTeammate({
+    ...state,
+    targets: nextTargets,
+  });
+
+  return nextTargets[index];
+}
+
 /**
  * Update specific fields of a teammate
  */
@@ -243,6 +378,7 @@ export function updateTeammate(
       | "role" 
       | "model"
       | "conversationId" 
+      | "mainConversationId"
       | "lastUpdated"
       | "currentTask"
       | "pendingTasks"
@@ -252,6 +388,7 @@ export function updateTeammate(
       | "progress"
       | "progressNote"
       | "spawnPrompt"
+      | "targets"
       | "memfsEnabled"
       | "memfsStartup"
       | "memfsMemoryDir"
@@ -544,16 +681,20 @@ export function getTask(taskId: string): TaskState | null {
   return tasks[taskId] || null;
 }
 
-/**
- * Create a new task
- */
-export function createTask(teammateName: string, message: string): TaskState {
+export function createTask(
+  teammateName: string,
+  message: string,
+  metadata?: Pick<TaskState, 'rootTeammateName' | 'targetName' | 'conversationId'>,
+): TaskState {
   const tasks = loadTasks();
   const taskId = generateTaskId();
 
   const task: TaskState = {
     id: taskId,
     teammateName,
+    rootTeammateName: metadata?.rootTeammateName,
+    targetName: metadata?.targetName,
+    conversationId: metadata?.conversationId,
     message,
     status: "pending",
     createdAt: new Date().toISOString(),
@@ -570,7 +711,7 @@ export function createTask(teammateName: string, message: string): TaskState {
  */
 export function updateTask(
   taskId: string,
-  updates: Partial<Pick<TaskState, "status" | "result" | "error" | "startedAt" | "completedAt" | "toolCalls">>
+  updates: Partial<Pick<TaskState, "status" | "result" | "error" | "startedAt" | "completedAt" | "toolCalls" | "conversationId" | "targetName" | "rootTeammateName">>
 ): TaskState | null {
   const tasks = loadTasks();
   const task = tasks[taskId];
@@ -697,7 +838,7 @@ export function findIdleTeammates(daysOld: number = 7): TeammateState[] {
  */
 export function findBrokenTeammates(): TeammateState[] {
   const teammates = listTeammates();
-  return teammates.filter((t) => !t.conversationId);
+  return teammates.filter((t) => !getRootConversationId(t));
 }
 
 /**

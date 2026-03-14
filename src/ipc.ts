@@ -284,13 +284,13 @@ export async function sendToDaemon(
  * Dispatch a task to a teammate via the daemon
  */
 export async function dispatchTask(
-  teammateName: string,
+  targetName: string,
   message: string,
   projectDir?: string
 ): Promise<{ taskId: string }> {
   const response = await sendToDaemon({
     type: "dispatch",
-    teammateName,
+    targetName,
     message,
     projectDir: projectDir ?? process.cwd(),
   });
@@ -381,11 +381,11 @@ export async function waitForTask(
  * Dispatch a task and wait for completion
  */
 export async function dispatchAndWait(
-  teammateName: string,
+  targetName: string,
   message: string,
   options?: { pollIntervalMs?: number; timeoutMs?: number }
 ): Promise<TaskState> {
-  const { taskId } = await dispatchTask(teammateName, message);
+  const { taskId } = await dispatchTask(targetName, message);
   return waitForTask(taskId, options);
 }
 
@@ -430,8 +430,35 @@ export async function spawnTeammateViaDaemon(
   );
 }
 
+export async function forkTeammateViaDaemon(
+  rootName: string,
+  forkName: string,
+  options?: {
+    timeoutMs?: number;
+    projectDir?: string;
+  }
+): Promise<TeammateState> {
+  const response = await sendToDaemon(
+    {
+      type: 'fork',
+      rootName,
+      forkName,
+      projectDir: options?.projectDir ?? process.cwd(),
+    },
+    { timeoutMs: options?.timeoutMs ?? 120000 },
+  );
+
+  if (response.type === 'forked') {
+    return response.teammate;
+  }
+
+  throw new Error(
+    response.type === 'error' ? response.message : 'Unexpected response from daemon'
+  );
+}
+
 export async function reinitTeammateViaDaemon(
-  teammateName: string,
+  rootName: string,
   options?: {
     prompt?: string;
     timeoutMs?: number;
@@ -441,7 +468,7 @@ export async function reinitTeammateViaDaemon(
   const response = await sendToDaemon(
     {
       type: "reinit",
-      teammateName,
+      rootName,
       prompt: options?.prompt,
       projectDir: options?.projectDir ?? process.cwd(),
     },

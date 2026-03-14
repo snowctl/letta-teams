@@ -1,6 +1,31 @@
 /**
  * Teammate state stored in .lteams/<name>.json
  */
+export type ConversationTargetKind = 'root' | 'memory' | 'custom';
+
+export interface ConversationTargetState {
+  /** Full target name, e.g. alice or alice/memory */
+  name: string;
+  /** Root teammate name */
+  rootName: string;
+  /** Fork segment for non-root targets */
+  forkName?: string;
+  /** Target kind */
+  kind: ConversationTargetKind;
+  /** Conversation ID used for this target */
+  conversationId: string;
+  /** Parent target name if this is a fork */
+  parentTargetName?: string;
+  /** Parent conversation ID if this is a fork */
+  parentConversationId?: string;
+  /** ISO timestamp of creation */
+  createdAt: string;
+  /** ISO timestamp of last activity */
+  lastActiveAt: string;
+  /** Lightweight status for display */
+  status?: 'idle' | 'running' | 'error';
+}
+
 export interface TeammateState {
   // === Identity ===
   /** Name of the teammate (filename without .json) */
@@ -11,10 +36,14 @@ export interface TeammateState {
   agentId: string;
   /** Conversation ID (for resuming specific conversations) */
   conversationId?: string;
+  /** Root/main conversation ID */
+  mainConversationId?: string;
   /** Model used by the agent */
   model?: string;
   /** Rich spawn prompt used for background memory initialization */
   spawnPrompt?: string;
+  /** All conversation targets for this teammate */
+  targets?: ConversationTargetState[];
 
   // === Memfs Configuration ===
   /** Whether memfs (git-backed memory) is enabled */
@@ -142,8 +171,14 @@ export interface ToolCallEvent {
 export interface TaskState {
   /** Unique task ID */
   id: string;
-  /** Name of the teammate */
+  /** Routed target name (root or fork) */
   teammateName: string;
+  /** Root teammate name */
+  rootTeammateName?: string;
+  /** Exact routed target name */
+  targetName?: string;
+  /** Conversation used for this task */
+  conversationId?: string;
   /** Message/task sent to the teammate */
   message: string;
   /** Current status */
@@ -166,7 +201,7 @@ export interface TaskState {
  * IPC message types for daemon communication
  */
 export type DaemonMessage =
-  | { type: "dispatch"; teammateName: string; message: string; projectDir: string }
+  | { type: "dispatch"; targetName: string; message: string; projectDir: string }
   | {
       type: "spawn";
       name: string;
@@ -179,8 +214,14 @@ export type DaemonMessage =
       projectDir: string;
     }
   | {
+      type: "fork";
+      rootName: string;
+      forkName: string;
+      projectDir: string;
+    }
+  | {
       type: "reinit";
-      teammateName: string;
+      rootName: string;
       prompt?: string;
       projectDir: string;
     }
@@ -194,6 +235,7 @@ export type DaemonMessage =
 export type DaemonResponse =
   | { type: "accepted"; taskId: string }
   | { type: "spawned"; teammate: TeammateState }
+  | { type: "forked"; teammate: TeammateState; target: ConversationTargetState }
   | { type: "task"; task: TaskState }
   | { type: "tasks"; tasks: TaskState[] }
   | { type: "error"; message: string }
