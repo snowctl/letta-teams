@@ -14,7 +14,6 @@ import {
   updateTeammate,
   removeTeammate,
   listTeammates,
-  updateTodo,
   updateStatus,
 } from '../store.js';
 import type { TeammateState } from '../types.js';
@@ -95,7 +94,12 @@ describe('store', () => {
         agentId: 'agent-abc123',
         model: 'claude-sonnet-4-20250514',
         status: 'working',
-        todo: 'Implementing feature X',
+        statusSummary: {
+          phase: 'implementing',
+          message: 'Implementing feature X',
+          lastHeartbeatAt: '2026-03-06T10:00:00Z',
+          updatedAt: '2026-03-06T10:00:00Z',
+        },
         lastUpdated: '2026-03-06T10:00:00Z',
         createdAt: '2026-03-06T09:00:00Z',
       };
@@ -108,7 +112,7 @@ describe('store', () => {
       expect(loaded?.agentId).toBe('agent-abc123');
       expect(loaded?.model).toBe('claude-sonnet-4-20250514');
       expect(loaded?.status).toBe('working');
-      expect(loaded?.todo).toBe('Implementing feature X');
+      expect(loaded?.statusSummary?.message).toBe('Implementing feature X');
     });
 
     it('should return null for non-existent teammate', () => {
@@ -130,12 +134,17 @@ describe('store', () => {
 
       const updated = updateTeammate('reviewer', {
         status: 'working',
-        todo: 'Reviewing PR #123',
+        statusSummary: {
+          phase: 'reviewing',
+          message: 'Reviewing PR #123',
+          lastHeartbeatAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
       });
 
       expect(updated).not.toBeNull();
       expect(updated?.status).toBe('working');
-      expect(updated?.todo).toBe('Reviewing PR #123');
+      expect(updated?.statusSummary?.message).toBe('Reviewing PR #123');
       expect(updated?.lastUpdated).not.toBe('2026-03-06T09:00:00Z');
     });
 
@@ -222,25 +231,6 @@ describe('store', () => {
 
       expect(listed).toHaveLength(2);
       expect(listed.map((t) => t.name).sort()).toEqual(['coder', 'researcher']);
-    });
-  });
-
-  describe('updateTodo', () => {
-    it('should update todo and set status to working', () => {
-      const state: TeammateState = {
-        name: 'debugger',
-        role: 'Bug fixer',
-        agentId: 'agent-debug',
-        status: 'idle',
-        lastUpdated: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-      };
-      saveTeammate(state);
-
-      const updated = updateTodo('debugger', 'Investigating bug in auth');
-
-      expect(updated?.todo).toBe('Investigating bug in auth');
-      expect(updated?.status).toBe('working');
     });
   });
 

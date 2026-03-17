@@ -17,6 +17,8 @@ const AgentDetail: React.FC<AgentDetailProps> = ({ agent }) => {
   }
 
   const statusColor = getStatusColor(agent.status);
+  const summary = agent.statusSummary;
+  const activeTodo = agent.todoItems?.find((item) => item.id === summary?.currentTodoId);
 
   return (
     <Box flexDirection="column" paddingX={1}>
@@ -34,42 +36,39 @@ const AgentDetail: React.FC<AgentDetailProps> = ({ agent }) => {
           <Text dimColor>Status: </Text>
           <Text color={statusColor}>{agent.status}</Text>
         </Box>
-        {agent.progress !== undefined && (
+        {summary?.progress !== undefined && (
           <Box>
             <Text dimColor>Progress: </Text>
-            <Text color={statusColor}>{formatProgressBar(agent.progress, 10)}</Text>
-            <Text> {agent.progress}%</Text>
-            {agent.progressNote && (
-              <Text dimColor> - {agent.progressNote}</Text>
-            )}
+            <Text color={statusColor}>{formatProgressBar(summary.progress, 10)}</Text>
+            <Text> {summary.progress}%</Text>
           </Box>
         )}
-        {(agent.currentTask || agent.todo) && (
+        {summary?.message && (
           <Box>
-            <Text dimColor>Current Task: </Text>
-            <Text>{agent.currentTask || agent.todo}</Text>
+            <Text dimColor>Status: </Text>
+            <Text>{summary.phase} - {summary.message}</Text>
           </Box>
         )}
-        {agent.currentProblem && (
+        {activeTodo && (
           <Box>
-            <Text dimColor>Problem: </Text>
-            <Text color="red">{agent.currentProblem}</Text>
+            <Text dimColor>Current Todo: </Text>
+            <Text>{activeTodo.title}</Text>
           </Box>
         )}
         <Box>
           <Text dimColor>Last Updated: </Text>
           <Text>{formatRelativeTime(agent.lastUpdated)}</Text>
         </Box>
-        {agent.pendingTasks && agent.pendingTasks.length > 0 && (
+        {agent.todoItems && agent.todoItems.length > 0 && (
           <Box>
-            <Text dimColor>Pending: </Text>
-            <Text>{agent.pendingTasks.length} tasks</Text>
+            <Text dimColor>Todos: </Text>
+            <Text>{agent.todoItems.length} items</Text>
           </Box>
         )}
-        {agent.completedTasks && agent.completedTasks.length > 0 && (
+        {agent.statusEvents && agent.statusEvents.length > 0 && (
           <Box>
-            <Text dimColor>Completed: </Text>
-            <Text>{agent.completedTasks.length} tasks</Text>
+            <Text dimColor>Events: </Text>
+            <Text>{agent.statusEvents.length}</Text>
           </Box>
         )}
       </Box>

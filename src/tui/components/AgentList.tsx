@@ -26,10 +26,11 @@ const AgentList: React.FC<AgentListProps> = ({ teammates, selectedIndex }) => {
           const status = agent.status || 'idle';
           const icon = getStatusIcon(status);
           const color = getStatusColor(status);
-          const progress = agent.progress !== undefined
-            ? formatProgressBar(agent.progress, 10)
+          const progressValue = agent.statusSummary?.progress;
+          const progress = progressValue !== undefined
+            ? formatProgressBar(progressValue, 10)
             : '░'.repeat(10);
-          const task = agent.currentTask || agent.todo || 'No task assigned';
+          const task = agent.statusSummary?.message || 'No status message';
 
           return (
             <Box key={agent.name} paddingX={1}>

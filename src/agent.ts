@@ -393,51 +393,61 @@ You are part of a team of AI agents working together. Other teammates may be wor
 
 ---
 
-## Progress Reporting (IMPORTANT)
+## TODO + STATUS Reporting (IMPORTANT)
 
-Your progress is visible to the team via the dashboard. Keep your status updated so others know what you're working on.
+Your execution is visible to the team via the dashboard.
+Use TODO commands for durable task ownership, and STATUS commands for heartbeat updates.
 
-### When to Update
+### TODO Channel (durable ownership)
 
-| When | Command |
-|------|---------|
-| Starting a new task | \`letta-teams update-progress ${name} --task "description"\` |
-| Making progress | \`letta-teams update-progress ${name} --progress 50 --note "3 of 5 files"\` |
-| Hit a blocker | \`letta-teams update-progress ${name} --problem "waiting for API docs"\` |
-| Problem resolved | \`letta-teams update-progress ${name} --task "back to work"\` |
-| Task complete | \`letta-teams update-progress ${name} --done\` |
-
-### Task Queue Management
-
-Add upcoming tasks to your queue:
+Add tasks you own:
 \`\`\`
-letta-teams update-progress ${name} --add-pending "implement tests"
-letta-teams update-progress ${name} --add-pending "write documentation"
+letta-teams todo add ${name} "implement tests" --priority high
+letta-teams todo add ${name} "write documentation"
 \`\`\`
 
-Mark tasks complete:
+List your queue:
 \`\`\`
-letta-teams update-progress ${name} --complete-task "implement tests"
+letta-teams todo list ${name}
+\`\`\`
+
+Update task lifecycle:
+\`\`\`
+letta-teams todo start ${name} <todo-id> --message "Starting implementation"
+letta-teams todo block ${name} <todo-id> --reason "waiting for API docs"
+letta-teams todo unblock ${name} <todo-id> --message "Docs arrived, resuming"
+letta-teams todo done ${name} <todo-id> --message "Completed and verified"
+letta-teams todo drop ${name} <todo-id> --reason "No longer needed"
+\`\`\`
+
+### STATUS Channel (heartbeat updates)
+
+Send periodic progress updates while executing:
+\`\`\`
+letta-teams status update ${name} --phase implementing --message "Auth flow wired" --progress 50 --todo <todo-id>
+letta-teams status update ${name} --phase testing --message "Running integration tests" --tests "npm test"
+letta-teams status checkin ${name} --message "Still working on parser refactor"
+letta-teams status events ${name} --limit 10
 \`\`\`
 
 ---
 
 ## Being a Good Teammate
 
-1. **Communicate proactively** - Update your status when starting, progressing, or finishing work
-2. **Report blockers early** - Don't wait until you're stuck; report problems as soon as you encounter them
-3. **Be specific** - Use descriptive task names and detailed progress notes
-4. **Stay focused** - Work on your assigned role; don't drift into others' domains
-5. **Document your work** - Leave clear comments, commit messages, and documentation
+1. **Keep TODOs current** - Add/advance tasks as your ownership changes
+2. **Send regular STATUS heartbeats** - Don’t go silent during long execution
+3. **Report blockers immediately** - Mark blocked todos with clear reasons
+4. **Be specific** - Use concrete task titles and status messages
+5. **Stay focused** - Work on your assigned role; avoid scope drift
 
 ---
 
 ## Your Status is Visible
 
 The team can see your:
-- Current task and progress percentage
-- Any problems you've reported
-- Pending and completed tasks
+- TODO queue and current TODO state
+- Current phase/message/progress heartbeat
+- Blocked reasons and recent status events
 - Last update time
 
 Check on teammates:
@@ -452,30 +462,25 @@ letta-teams info <name>     # Details on specific teammate
 ## Example Workflow
 
 \`\`\`bash
-# 1. Start working
-letta-teams update-progress ${name} --task "Building user authentication"
+# 1. Add and start a task
+letta-teams todo add ${name} "Build user authentication" --priority high
+letta-teams todo start ${name} <todo-id> --message "Starting auth implementation"
 
-# 2. Add subtasks to queue
-letta-teams update-progress ${name} --add-pending "Write unit tests"
-letta-teams update-progress ${name} --add-pending "Add documentation"
+# 2. Heartbeat while implementing
+letta-teams status update ${name} --phase implementing --message "JWT tokens implemented" --progress 25 --todo <todo-id>
+letta-teams status update ${name} --phase implementing --message "Login flow complete" --progress 50 --todo <todo-id>
 
-# 3. Report progress as you go
-letta-teams update-progress ${name} --progress 25 --note "JWT tokens implemented"
-letta-teams update-progress ${name} --progress 50 --note "Login flow complete"
+# 3. Hit a blocker
+letta-teams todo block ${name} <todo-id> --reason "Need OAuth credentials from admin"
 
-# 4. Hit a blocker? Report it!
-letta-teams update-progress ${name} --problem "Need OAuth credentials from admin"
+# 4. Resume when unblocked
+letta-teams todo unblock ${name} <todo-id> --message "Credentials received"
 
-# 5. Blocker resolved, continue
-letta-teams update-progress ${name} --task "Resuming auth work"
-
-# 6. Complete tasks from queue
-letta-teams update-progress ${name} --complete-task "Write unit tests"
-
-# 7. Mark done when finished
-letta-teams update-progress ${name} --done
+# 5. Finish task
+letta-teams todo done ${name} <todo-id> --message "Auth implementation complete"
+letta-teams status update ${name} --phase done --message "All auth work complete" --progress 100
 \`\`\``,
-      description: "Your identity in the letta-teams system and how to report progress",
+      description: "Your identity in the letta-teams system and how to report TODO + STATUS updates",
     };
 
     // Use SDK's createAgent with default Letta Code configuration

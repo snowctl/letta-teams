@@ -24,11 +24,16 @@ import {
   loadTeammate,
   updateTeammate,
   getApiKey,
-  updateTodo,
-  updateWork,
-  reportProblem,
-  clearProblem,
-  updateProgress,
+  addTodo,
+  listTodoItems,
+  startTodo,
+  blockTodo,
+  unblockTodo,
+  completeTodo,
+  dropTodo,
+  updateStatusSummary,
+  getRecentStatusEvents,
+  findStaleTeammates,
   findTasksToPrune,
   findIdleTeammates,
   findBrokenTeammates,
@@ -62,7 +67,7 @@ import { registerCommands } from "./commands/index.js";
 import { launchTui } from "./tui/index.js";
 import { checkAndAutoUpdate } from "./updater/auto-update.js";
 import { startStartupAutoUpdateCheck } from "./updater/startup-auto-update.js";
-import type { TaskState } from "./types.js";
+import type { TaskState, TodoState, TodoPriority, StatusPhase } from "./types.js";
 
 // Get version from package.json
 const require = createRequire(import.meta.url);
@@ -785,7 +790,11 @@ program
             console.log(`      - ${fork.name}${convId}`);
           }
         }
-        if (t.todo) console.log(`    Todo: ${t.todo}`);
+        if (t.statusSummary?.message) console.log(`    Status: ${t.statusSummary.message}`);
+        if (t.todoItems && t.todoItems.length > 0) {
+          const active = t.todoItems.filter((item) => item.state === 'in_progress' || item.state === 'blocked');
+          console.log(`    Todos: ${t.todoItems.length} total (${active.length} active)`);
+        }
         console.log(`    Last updated: ${t.lastUpdated}`);
         console.log();
       }
@@ -913,7 +922,12 @@ Examples:
       console.log(`  Memfs status: ${memfsStatus}`);
       console.log(`  Status: ${target.status ?? state.status}`);
       if (target.parentTargetName) console.log(`  Parent target: ${target.parentTargetName}`);
-      if (state.todo) console.log(`  Todo: ${state.todo}`);
+      if (state.statusSummary?.message) {
+        console.log(`  Status summary: ${state.statusSummary.phase} - ${state.statusSummary.message}`);
+      }
+      if (state.todoItems && state.todoItems.length > 0) {
+        console.log(`  Todo items: ${state.todoItems.length}`);
+      }
       console.log(`  Created: ${target.createdAt}`);
       console.log(`  Last active: ${target.lastActiveAt}`);
     }
@@ -997,36 +1011,153 @@ program
   });
 
 // ═══════════════════════════════════════════════════════════════
-// STATUS COMMAND
+// STATUS COMMANDS
 // ═══════════════════════════════════════════════════════════════
 
-program
-  .command("status")
-  .description("Show status summary of all teammates")
-  .action(() => {
+const statusCommand = program
+  .command('status')
+  .description('STATUS channel commands');
+
+statusCommand
+  .command('update <name>')
+  .description('Update execution status summary and append status event')
+  .requiredOption('--phase <phase>', 'idle|planning|implementing|testing|reviewing|blocked|done')
+  .requiredOption('--message <text>', 'Status message')
+  .option('--progress <number>', 'Progress percentage (0-100)')
+  .option('--todo <id>', 'Current todo ID')
+  .option('--files <csv>', 'Comma-separated list of files touched')
+  .option('--tests <text>', 'Test command or summary')
+  .option('--blocked-reason <text>', 'Blocker reason')
+  .option('--code-change', 'Mark this as code-change milestone')
+  .action((name: string, options) => {
     const globalOpts = program.opts();
-    const teammates = listTeammates();
+
+    try {
+      validateName(name);
+    } catch (error) {
+      handleError(error as Error, globalOpts.json);
+      return;
+    }
+
+    if (!teammateExists(name)) {
+      handleError(new Error(`Teammate '${name}' not found`), globalOpts.json);
+      return;
+    }
+
+    const phase = options.phase as StatusPhase;
+    const progress = options.progress ? parseInt(options.progress, 10) : undefined;
+    const filesTouched = options.files
+      ? String(options.files).split(',').map((f) => f.trim()).filter(Boolean)
+      : undefined;
+
+    const updated = updateStatusSummary(name, {
+      phase,
+      message: options.message,
+      progress,
+      currentTodoId: options.todo,
+      filesTouched,
+      testsRun: options.tests,
+      blockedReason: options.blockedReason,
+      codeChange: options.codeChange,
+    });
+
+    if (!updated) {
+      handleError(new Error(`Failed to update status for '${name}'`), globalOpts.json);
+      return;
+    }
 
     if (globalOpts.json) {
-      console.log(JSON.stringify(teammates, null, 2));
+      console.log(JSON.stringify(updated, null, 2));
     } else {
-      if (teammates.length === 0) {
-        console.log("No teammates found.");
-        return;
-      }
-
-      console.log("Team Status:\n");
-      console.log("  Name          Status    Todo");
-      console.log("  ────────────  ────────  ────────────────────────────");
-
-      for (const t of teammates) {
-        const name = t.name.padEnd(12).slice(0, 12);
-        const status = t.status.padEnd(8);
-        const todo = (t.todo || "-").slice(0, 28);
-        console.log(`  ${name}  ${status}  ${todo}`);
-      }
+      console.log(`✓ Updated status for '${name}': ${phase} - ${options.message}`);
     }
   });
+
+statusCommand
+  .command('events <name>')
+  .description('Show recent STATUS events for a teammate')
+  .option('--limit <n>', 'Number of events to show', '20')
+  .action((name: string, options) => {
+    const globalOpts = program.opts();
+    const limit = parseInt(options.limit, 10);
+    const events = getRecentStatusEvents(name, Number.isNaN(limit) ? 20 : limit);
+
+    if (globalOpts.json) {
+      console.log(JSON.stringify(events, null, 2));
+      return;
+    }
+
+    if (events.length === 0) {
+      console.log(`No status events for '${name}'`);
+      return;
+    }
+
+    console.log(`Status events for ${name}:`);
+    for (const event of events) {
+      console.log(`- [${event.phase}/${event.type}] ${event.message} (${new Date(event.ts).toLocaleTimeString()})`);
+    }
+  });
+
+statusCommand
+  .command('checkin [name]')
+  .description('Show status summaries and stale teammates')
+  .option('--stale <minutes>', 'Staleness threshold in minutes', '15')
+  .option('--limit <n>', 'Events shown when name is provided', '10')
+  .action((name: string | undefined, options) => {
+    const globalOpts = program.opts();
+    const staleMinutes = parseInt(options.stale, 10);
+    const limit = parseInt(options.limit, 10);
+
+    if (name) {
+      const teammate = loadTeammate(name);
+      if (!teammate) {
+        handleError(new Error(`Teammate '${name}' not found`), globalOpts.json);
+        return;
+      }
+      const events = getRecentStatusEvents(name, Number.isNaN(limit) ? 10 : limit);
+      if (globalOpts.json) {
+        console.log(JSON.stringify({ teammate, events }, null, 2));
+      } else {
+        console.log(`${teammate.name}: ${teammate.status}`);
+        if (teammate.statusSummary) {
+          console.log(`  ${teammate.statusSummary.phase} - ${teammate.statusSummary.message}`);
+          console.log(`  heartbeat: ${teammate.statusSummary.lastHeartbeatAt}`);
+        }
+        if (events.length > 0) {
+          console.log('  recent events:');
+          for (const event of events) {
+            console.log(`    - [${event.phase}] ${event.message}`);
+          }
+        }
+      }
+      return;
+    }
+
+    const teammates = listTeammates();
+    const stale = new Set(findStaleTeammates(Number.isNaN(staleMinutes) ? 15 : staleMinutes).map((t) => t.name));
+
+    if (globalOpts.json) {
+      console.log(JSON.stringify({ teammates, stale: Array.from(stale) }, null, 2));
+      return;
+    }
+
+    if (teammates.length === 0) {
+      console.log('No teammates found.');
+      return;
+    }
+
+    console.log('Team check-in:\n');
+    for (const t of teammates) {
+      const marker = stale.has(t.name) ? ' [STALE]' : '';
+      const summary = t.statusSummary ? `${t.statusSummary.phase} - ${t.statusSummary.message}` : '-';
+      console.log(`- ${t.name} (${t.status})${marker}`);
+      console.log(`  ${summary}`);
+    }
+  });
+
+statusCommand.action(() => {
+  console.log('Usage: status update|events|checkin ...');
+});
 
 // ═══════════════════════════════════════════════════════════════
 // DASHBOARD COMMAND
@@ -1414,13 +1545,19 @@ program
   });
 
 // ═══════════════════════════════════════════════════════════════
-// TODO COMMAND
+// TODO COMMANDS
 // ═══════════════════════════════════════════════════════════════
 
-program
-  .command("todo <name> <text>")
-  .description("Update a teammate's todo field (used by teammates to report progress)")
-  .action((name: string, text: string) => {
+const todoCommand = program
+  .command('todo')
+  .description('TODO channel commands');
+
+todoCommand
+  .command('add <name> <title>')
+  .description('Add a TODO item for a teammate')
+  .option('--priority <level>', 'low|medium|high')
+  .option('--notes <text>', 'Optional notes')
+  .action((name: string, title: string, options) => {
     const globalOpts = program.opts();
 
     try {
@@ -1435,180 +1572,120 @@ program
       return;
     }
 
-    const state = updateTodo(name, text);
+    const priority = options.priority as TodoPriority | undefined;
+    const state = addTodo(name, { title, priority, notes: options.notes });
 
     if (globalOpts.json) {
       console.log(JSON.stringify(state, null, 2));
     } else {
-      console.log(`✓ Updated todo for '${name}': ${text}`);
+      console.log(`✓ Added todo for '${name}': ${title}`);
     }
   });
 
-// ═══════════════════════════════════════════════════════════════
-// WORK COMMAND
-// ═══════════════════════════════════════════════════════════════
-
-program
-  .command("work <name> <task>")
-  .description("Update what a teammate is currently working on")
-  .option("--progress <number>", "Progress percentage (0-100)")
-  .option("--note <text>", "Progress note (e.g., '3 of 5 files')")
-  .action((name: string, task: string, options) => {
-    const globalOpts = program.opts();
-
-    try {
-      validateName(name);
-    } catch (error) {
-      handleError(error as Error, globalOpts.json);
-      return;
-    }
-
-    if (!teammateExists(name)) {
-      handleError(new Error(`Teammate '${name}' not found`), globalOpts.json);
-      return;
-    }
-
-    const progress = options.progress ? parseInt(options.progress, 10) : undefined;
-    const state = updateWork(name, {
-      currentTask: task,
-      progress,
-      progressNote: options.note,
-    });
-
-    if (globalOpts.json) {
-      console.log(JSON.stringify(state, null, 2));
-    } else {
-      console.log(`✓ Updated work for '${name}': ${task}`);
-      if (progress !== undefined) {
-        console.log(`  Progress: ${progress}%`);
-      }
-    }
-  });
-
-// ═══════════════════════════════════════════════════════════════
-// PROBLEM COMMAND
-// ═══════════════════════════════════════════════════════════════
-
-program
-  .command("problem <name> <problem>")
-  .description("Report a problem/blocker a teammate is facing")
-  .action((name: string, problem: string) => {
-    const globalOpts = program.opts();
-
-    try {
-      validateName(name);
-    } catch (error) {
-      handleError(error as Error, globalOpts.json);
-      return;
-    }
-
-    if (!teammateExists(name)) {
-      handleError(new Error(`Teammate '${name}' not found`), globalOpts.json);
-      return;
-    }
-
-    const state = reportProblem(name, problem);
-
-    if (globalOpts.json) {
-      console.log(JSON.stringify(state, null, 2));
-    } else {
-      console.log(`✓ Reported problem for '${name}': ${problem}`);
-    }
-  });
-
-// ═══════════════════════════════════════════════════════════════
-// CLEAR-PROBLEM COMMAND
-// ═══════════════════════════════════════════════════════════════
-
-program
-  .command("clear-problem <name>")
-  .description("Clear a teammate's problem and set status back to working")
-  .action((name: string) => {
-    const globalOpts = program.opts();
-
-    try {
-      validateName(name);
-    } catch (error) {
-      handleError(error as Error, globalOpts.json);
-      return;
-    }
-
-    if (!teammateExists(name)) {
-      handleError(new Error(`Teammate '${name}' not found`), globalOpts.json);
-      return;
-    }
-
-    const state = clearProblem(name);
-
-    if (globalOpts.json) {
-      console.log(JSON.stringify(state, null, 2));
-    } else {
-      console.log(`✓ Cleared problem for '${name}'`);
-    }
-  });
-
-// ═══════════════════════════════════════════════════════════════
-// UPDATE-PROGRESS COMMAND
-// ═══════════════════════════════════════════════════════════════
-
-program
-  .command("update-progress <name>")
-  .description("Update a teammate's progress (used by agents to self-report)")
-  .option("--task <text>", "Current task description")
-  .option("--progress <number>", "Progress percentage (0-100)")
-  .option("--note <text>", "Progress note (e.g., '3 of 5 files')")
-  .option("--problem <text>", "Report a blocker/issue")
-  .option("--done", "Mark task as complete")
-  .option("--add-pending <task>", "Add task to pending queue")
-  .option("--complete-task <task>", "Move task from pending to completed")
+todoCommand
+  .command('list <name>')
+  .description('List TODO items for a teammate')
+  .option('--state <state>', 'pending|in_progress|blocked|done|dropped')
   .action((name: string, options) => {
     const globalOpts = program.opts();
+    const items = listTodoItems(name);
+    const filterState = options.state as TodoState | undefined;
+    const filtered = filterState ? items.filter((item) => item.state === filterState) : items;
 
-    try {
-      validateName(name);
-    } catch (error) {
-      handleError(error as Error, globalOpts.json);
-      return;
+    if (globalOpts.json) {
+      console.log(JSON.stringify(filtered, null, 2));
+    } else {
+      if (filtered.length === 0) {
+        console.log(`No todo items for '${name}'`);
+        return;
+      }
+
+      console.log(`Todo items for ${name}:`);
+      for (const item of filtered) {
+        const priority = item.priority ? ` [${item.priority}]` : '';
+        console.log(`- ${item.id} (${item.state})${priority} ${item.title}`);
+      }
     }
+  });
 
-    if (!teammateExists(name)) {
-      handleError(new Error(`Teammate '${name}' not found`), globalOpts.json);
-      return;
-    }
-
-    // Parse progress as number
-    const progress = options.progress ? parseInt(options.progress, 10) : undefined;
-
-    const state = updateProgress(name, {
-      task: options.task,
-      progress,
-      note: options.note,
-      problem: options.problem,
-      addPending: options.addPending,
-      completeTask: options.completeTask,
-      done: options.done,
-    });
+todoCommand
+  .command('start <name> <todoId>')
+  .description('Mark todo as in progress and set status to implementing')
+  .option('--message <text>', 'Optional status message')
+  .action((name: string, todoId: string, options) => {
+    const globalOpts = program.opts();
+    const state = startTodo(name, todoId, { message: options.message });
 
     if (globalOpts.json) {
       console.log(JSON.stringify(state, null, 2));
     } else {
-      // Build feedback message based on what was updated
-      const updates: string[] = [];
-      if (options.task) updates.push(`task: "${options.task}"`);
-      if (progress !== undefined) updates.push(`progress: ${progress}%`);
-      if (options.note) updates.push(`note: "${options.note}"`);
-      if (options.problem) updates.push(`problem: "${options.problem}"`);
-      if (options.addPending) updates.push(`added pending: "${options.addPending}"`);
-      if (options.completeTask) updates.push(`completed: "${options.completeTask}"`);
-      if (options.done) updates.push("marked as done");
-
-      if (updates.length === 0) {
-        console.log(`✓ Updated '${name}' (no changes specified)`);
-      } else {
-        console.log(`✓ Updated '${name}': ${updates.join(", ")}`);
-      }
+      console.log(`✓ Started todo '${todoId}' for '${name}'`);
     }
   });
+
+todoCommand
+  .command('block <name> <todoId> <reason>')
+  .description('Mark todo as blocked')
+  .option('--message <text>', 'Optional status message')
+  .action((name: string, todoId: string, reason: string, options) => {
+    const globalOpts = program.opts();
+    const state = blockTodo(name, todoId, reason, { message: options.message });
+
+    if (globalOpts.json) {
+      console.log(JSON.stringify(state, null, 2));
+    } else {
+      console.log(`✓ Blocked todo '${todoId}' for '${name}'`);
+    }
+  });
+
+todoCommand
+  .command('unblock <name> <todoId>')
+  .description('Unblock todo and move to in_progress')
+  .option('--message <text>', 'Optional status message')
+  .action((name: string, todoId: string, options) => {
+    const globalOpts = program.opts();
+    const state = unblockTodo(name, todoId, { message: options.message });
+
+    if (globalOpts.json) {
+      console.log(JSON.stringify(state, null, 2));
+    } else {
+      console.log(`✓ Unblocked todo '${todoId}' for '${name}'`);
+    }
+  });
+
+todoCommand
+  .command('done <name> <todoId>')
+  .description('Mark todo as done')
+  .option('--message <text>', 'Optional status message')
+  .action((name: string, todoId: string, options) => {
+    const globalOpts = program.opts();
+    const state = completeTodo(name, todoId, { message: options.message });
+
+    if (globalOpts.json) {
+      console.log(JSON.stringify(state, null, 2));
+    } else {
+      console.log(`✓ Completed todo '${todoId}' for '${name}'`);
+    }
+  });
+
+todoCommand
+  .command('drop <name> <todoId>')
+  .description('Drop todo item')
+  .option('--reason <text>', 'Optional reason')
+  .action((name: string, todoId: string, options) => {
+    const globalOpts = program.opts();
+    const state = dropTodo(name, todoId, { reason: options.reason });
+
+    if (globalOpts.json) {
+      console.log(JSON.stringify(state, null, 2));
+    } else {
+      console.log(`✓ Dropped todo '${todoId}' for '${name}'`);
+    }
+  });
+
+todoCommand.action(() => {
+  console.log('Usage: todo add|list|start|block|unblock|done|drop ...');
+});
 
 // ═══════════════════════════════════════════════════════════════
 // ERROR HANDLING

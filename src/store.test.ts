@@ -9,14 +9,16 @@ import {
   removeTeammate,
   listTeammates,
   updateStatus,
-  updateProgress,
-  updateWork,
   updateTeammate,
-  reportProblem,
-  clearProblem,
-  markDone,
-  addPendingTask,
-  completeTask,
+  addTodo,
+  listTodoItems,
+  startTodo,
+  blockTodo,
+  unblockTodo,
+  completeTodo,
+  dropTodo,
+  updateStatusSummary,
+  getRecentStatusEvents,
   createTask,
   updateTask,
   getTask,
@@ -173,10 +175,10 @@ describe("Store Module", () => {
   });
 
   // ═══════════════════════════════════════════════════════════════
-  // PROGRESS & WORK TRACKING TESTS
+  // TODO + STATUS CHANNEL TESTS
   // ═══════════════════════════════════════════════════════════════
 
-  describe("Progress & Work Tracking", () => {
+  describe("Todo & Status Channels", () => {
     const mockTeammate: TeammateState = {
       name: "test-agent",
       role: "Test role",
@@ -191,89 +193,96 @@ describe("Store Module", () => {
       saveTeammate(mockTeammate);
     });
 
-    it("should update work with current task", () => {
-      const updated = updateWork("test-agent", {
-        currentTask: "Building feature X",
-        progress: 50,
-        progressNote: "Halfway done",
-      });
-      
-      expect(updated?.currentTask).toBe("Building feature X");
-      expect(updated?.progress).toBe(50);
-      expect(updated?.progressNote).toBe("Halfway done");
+    it("should add todo item", () => {
+      const updated = addTodo("test-agent", { title: "Task 1", priority: "high" });
+      expect(updated?.todoItems).toHaveLength(1);
+      expect(updated?.todoItems?.[0].title).toBe("Task 1");
+      expect(updated?.todoItems?.[0].state).toBe("pending");
+      expect(updated?.todoItems?.[0].priority).toBe("high");
+    });
+
+    it("should list todo items", () => {
+      addTodo("test-agent", { title: "Task 1" });
+      addTodo("test-agent", { title: "Task 2" });
+      const items = listTodoItems("test-agent");
+      expect(items).toHaveLength(2);
+      expect(items.map((item) => item.title)).toEqual(["Task 1", "Task 2"]);
+    });
+
+    it("should start a todo and set implementing status", () => {
+      const withTodo = addTodo("test-agent", { title: "Implement feature" });
+      const todoId = withTodo?.todoItems?.[0].id;
+      expect(todoId).toBeDefined();
+
+      const updated = startTodo("test-agent", todoId as string, { message: "Starting implementation" });
+      expect(updated?.todoItems?.[0].state).toBe("in_progress");
+      expect(updated?.statusSummary?.phase).toBe("implementing");
+      expect(updated?.statusSummary?.currentTodoId).toBe(todoId);
       expect(updated?.status).toBe("working");
     });
 
-    it("should update progress with task", () => {
-      const updated = updateProgress("test-agent", {
-        task: "New task",
-        progress: 75,
-      });
-      
-      expect(updated?.currentTask).toBe("New task");
-      expect(updated?.progress).toBe(75);
+    it("should block and unblock a todo", () => {
+      const withTodo = addTodo("test-agent", { title: "Integrate API" });
+      const todoId = withTodo?.todoItems?.[0].id as string;
+      startTodo("test-agent", todoId);
+
+      const blocked = blockTodo("test-agent", todoId, "Waiting on credentials");
+      expect(blocked?.todoItems?.[0].state).toBe("blocked");
+      expect(blocked?.statusSummary?.phase).toBe("blocked");
+      expect(blocked?.status).toBe("error");
+
+      const unblocked = unblockTodo("test-agent", todoId);
+      expect(unblocked?.todoItems?.[0].state).toBe("in_progress");
+      expect(unblocked?.statusSummary?.phase).toBe("implementing");
+      expect(unblocked?.status).toBe("working");
     });
 
-    it("should clamp progress to 0-100 range", () => {
-      const updated1 = updateProgress("test-agent", { progress: 150 });
-      expect(updated1?.progress).toBe(100);
-      
-      const updated2 = updateProgress("test-agent", { progress: -50 });
-      expect(updated2?.progress).toBe(0);
-    });
+    it("should complete final open todo and mark teammate done", () => {
+      const withTodo = addTodo("test-agent", { title: "Finalize" });
+      const todoId = withTodo?.todoItems?.[0].id as string;
+      startTodo("test-agent", todoId);
 
-    it("should add pending task", () => {
-      const updated = addPendingTask("test-agent", "Task 1");
-      expect(updated?.pendingTasks).toContain("Task 1");
-      expect(updated?.status).toBe("working");
-    });
-
-    it("should complete task and move to completed", () => {
-      addPendingTask("test-agent", "Task 1");
-      addPendingTask("test-agent", "Task 2");
-      
-      const updated = completeTask("test-agent", "Task 1");
-      
-      expect(updated?.completedTasks).toContain("Task 1");
-      expect(updated?.pendingTasks).not.toContain("Task 1");
-    });
-
-    it("should report problem", () => {
-      const updated = reportProblem("test-agent", "Blocked on API");
-      
-      expect(updated?.currentProblem).toBe("Blocked on API");
-      expect(updated?.status).toBe("error");
-    });
-
-    it("should clear problem", () => {
-      reportProblem("test-agent", "Blocked");
-      const updated = clearProblem("test-agent");
-      
-      expect(updated?.currentProblem).toBeUndefined();
-      expect(updated?.status).toBe("working");
-    });
-
-    it("should mark as done", () => {
-      const updated = markDone("test-agent");
-      
+      const updated = completeTodo("test-agent", todoId);
+      expect(updated?.todoItems?.[0].state).toBe("done");
+      expect(updated?.statusSummary?.phase).toBe("done");
+      expect(updated?.statusSummary?.progress).toBe(100);
       expect(updated?.status).toBe("done");
-      expect(updated?.progress).toBe(100);
-      expect(updated?.currentTask).toBeUndefined();
-      expect(updated?.currentProblem).toBeUndefined();
     });
 
-    it("should handle done flag in updateProgress", () => {
-      const updated = updateProgress("test-agent", { done: true });
-      
-      expect(updated?.status).toBe("done");
-      expect(updated?.progress).toBe(100);
+    it("should drop a todo", () => {
+      const withTodo = addTodo("test-agent", { title: "Old task" });
+      const todoId = withTodo?.todoItems?.[0].id as string;
+
+      const updated = dropTodo("test-agent", todoId, { reason: "No longer needed" });
+      expect(updated?.todoItems?.[0].state).toBe("dropped");
+      expect(updated?.todoItems?.[0].blockedReason).toBe("No longer needed");
     });
 
-    it("should handle problem flag in updateProgress", () => {
-      const updated = updateProgress("test-agent", { problem: "Stuck!" });
-      
-      expect(updated?.currentProblem).toBe("Stuck!");
-      expect(updated?.status).toBe("error");
+    it("should clamp progress in status summary updates", () => {
+      const updatedHigh = updateStatusSummary("test-agent", {
+        phase: "implementing",
+        message: "Working",
+        progress: 150,
+      });
+      expect(updatedHigh?.statusSummary?.progress).toBe(100);
+
+      const updatedLow = updateStatusSummary("test-agent", {
+        phase: "implementing",
+        message: "Working",
+        progress: -20,
+      });
+      expect(updatedLow?.statusSummary?.progress).toBe(0);
+    });
+
+    it("should return recent status events", () => {
+      updateStatusSummary("test-agent", { phase: "planning", message: "Plan" });
+      updateStatusSummary("test-agent", { phase: "implementing", message: "Build" });
+      updateStatusSummary("test-agent", { phase: "testing", message: "Test" });
+
+      const recent = getRecentStatusEvents("test-agent", 2);
+      expect(recent).toHaveLength(2);
+      expect(recent[0].message).toBe("Test");
+      expect(recent[1].message).toBe("Build");
     });
   });
 

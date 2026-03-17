@@ -4,6 +4,9 @@ import {
   MEMFS_STARTUP_VALUES,
   type TeammateState,
   type TeammateStatus,
+  type TodoItem,
+  type StatusEvent,
+  type TeammateExecutionStatus,
   type TaskState,
   type TaskStatus,
   type MemfsStartup,
@@ -98,7 +101,6 @@ describe("Types Module", () => {
         name: "test",
         role: "Test role",
         agentId: "agent-123",
-        conversationId: "conv-123",
         model: "google_ai/gemini-2.5-flash",
         status: "idle",
         lastUpdated: new Date().toISOString(),
@@ -122,6 +124,37 @@ describe("Types Module", () => {
     });
 
     it("should accept TeammateState with all optional fields", () => {
+      const todoItems: TodoItem[] = [
+        {
+          id: "todo-1",
+          title: "Building feature",
+          state: "in_progress",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          startedAt: new Date().toISOString(),
+        },
+      ];
+
+      const statusSummary: TeammateExecutionStatus = {
+        phase: "implementing",
+        message: "Halfway done",
+        progress: 50,
+        currentTodoId: "todo-1",
+        lastHeartbeatAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const statusEvents: StatusEvent[] = [
+        {
+          id: "evt-1",
+          ts: new Date().toISOString(),
+          type: "progress",
+          phase: "implementing",
+          message: "Halfway done",
+          todoId: "todo-1",
+        },
+      ];
+
       const state: TeammateState = {
         name: "test",
         role: "Test role",
@@ -130,20 +163,18 @@ describe("Types Module", () => {
         memfsEnabled: true,
         memfsStartup: "blocking",
         status: "working",
-        currentTask: "Building feature",
-        pendingTasks: ["Task 1", "Task 2"],
-        completedTasks: ["Task 0"],
-        currentProblem: "Blocked on API",
+        todoItems,
+        statusSummary,
+        statusEvents,
         errorDetails: "Error details",
-        progress: 50,
-        progressNote: "Halfway done",
-        todo: "Legacy todo field",
         lastUpdated: new Date().toISOString(),
         createdAt: new Date().toISOString(),
       };
       
       expect(state.memfsEnabled).toBe(true);
-      expect(state.pendingTasks).toHaveLength(2);
+      expect(state.todoItems).toHaveLength(1);
+      expect(state.statusSummary?.phase).toBe("implementing");
+      expect(state.statusEvents).toHaveLength(1);
     });
 
     it("should accept valid TeammateStatus values", () => {

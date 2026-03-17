@@ -16,6 +16,7 @@ const ANSI = {
   reset: "\x1b[0m",
   bold: "\x1b[1m",
   dim: "\x1b[2m",
+  cyan: "\x1b[36m",
   green: "\x1b[32m",
   yellow: "\x1b[33m",
   red: "\x1b[31m",
@@ -72,15 +73,21 @@ function getFirstLines(text: string, lines: number): string[] {
   return allLines.slice(0, lines);
 }
 
+function formatPhase(phase?: string): string {
+  if (!phase) return "";
+  return phase.replace(/_/g, " ").toUpperCase();
+}
+
 /**
  * Active item for NOW section (teammate working or with problem)
  */
 interface ActiveItem {
   name: string;
   status: "working" | "error";
-  task?: string;
+  message?: string;
+  phase?: string;
+  currentTodoTitle?: string;
   progress?: number;
-  progressNote?: string;
   problem?: string;
 }
 
@@ -116,10 +123,11 @@ export function getDashboardData(limit: number = DEFAULT_LIMIT): DashboardData {
     .map(t => ({
       name: t.name,
       status: t.status as "working" | "error",
-      task: t.currentTask,
-      progress: t.progress,
-      progressNote: t.progressNote,
-      problem: t.currentProblem,
+      message: t.statusSummary?.message,
+      phase: t.statusSummary?.phase,
+      progress: t.statusSummary?.progress,
+      currentTodoTitle: t.todoItems?.find((item) => item.id === t.statusSummary?.currentTodoId)?.title,
+      problem: t.statusSummary?.phase === 'blocked' ? t.statusSummary.message : undefined,
     }));
 
   // RECENT: Completed or error tasks, sorted by completion time
@@ -147,7 +155,18 @@ export function getDashboardData(limit: number = DEFAULT_LIMIT): DashboardData {
  */
 export function renderDashboard(data: DashboardData, verbose: boolean = false): void {
   const useAnsi = supportsAnsi();
-  const a = useAnsi ? ANSI : { ...ANSI, reset: "", bold: "", dim: "", green: "", yellow: "", red: "", gray: "" };
+  const a = useAnsi ? ANSI : { ...ANSI, reset: "", bold: "", dim: "", cyan: "", green: "", yellow: "", red: "", gray: "" };
+  const sectionLine = `${a.dim}${"─".repeat(64)}${a.reset}`;
+
+  const summary = [
+    `${a.yellow}${data.now.length}${a.reset} active`,
+    `${a.green}${data.recent.length}${a.reset} recent`,
+    `${a.gray}${data.idle.length}${a.reset} idle`,
+  ].join(`${a.dim} · ${a.reset}`);
+
+  console.log(`${a.bold}${a.cyan}TEAM DASHBOARD${a.reset}`);
+  console.log(`${a.dim}${summary}${a.reset}`);
+  console.log();
 
   // ═══════════════════════════════════════════════════════════════
   // NOW SECTION
@@ -155,27 +174,32 @@ export function renderDashboard(data: DashboardData, verbose: boolean = false): 
 
   if (data.now.length > 0) {
     console.log(`${a.bold}NOW${a.reset}`);
-    console.log(`${a.dim}────────────────────────────────────────────────────────────────${a.reset}`);
+    console.log(sectionLine);
 
     for (const item of data.now) {
       const statusIcon = item.status === "working" ? `${a.yellow}●${a.reset}` : `${a.red}○${a.reset}`;
       const statusText = item.status === "working" ? "working" : "problem";
+      const phaseText = item.phase ? `${a.dim}[${formatPhase(item.phase)}]${a.reset}` : "";
 
       // Name and status
       const name = item.name.padEnd(12).slice(0, 12);
-      console.log(`${name}  ${statusIcon} ${statusText.padEnd(7)}`);
+      console.log(`${name}  ${statusIcon} ${statusText.padEnd(7)} ${phaseText}`.trimEnd());
 
-      // Task they're working on
-      if (item.task) {
-        const task = truncate(item.task, TRUNCATE_WIDTH);
+      // Summary message
+      if (item.message) {
+        const task = truncate(item.message, TRUNCATE_WIDTH);
         const progress = item.progress !== undefined ? ` [${renderProgressBar(item.progress, 5)}] ${item.progress}%` : "";
-        console.log(`             ${a.dim}${task}${progress}${a.reset}`);
+        console.log(`  ${a.dim}↳ ${task}${progress}${a.reset}`);
+      }
+
+      if (item.currentTodoTitle) {
+        console.log(`  ${a.dim}• todo: ${truncate(item.currentTodoTitle, TRUNCATE_WIDTH)}${a.reset}`);
       }
 
       // Problem if any
       if (item.problem) {
         const problem = truncate(item.problem, TRUNCATE_WIDTH);
-        console.log(`             ${a.red}⚠ ${problem}${a.reset}`);
+        console.log(`  ${a.red}⚠ ${problem}${a.reset}`);
       }
 
       console.log();
@@ -188,7 +212,7 @@ export function renderDashboard(data: DashboardData, verbose: boolean = false): 
 
   if (data.recent.length > 0) {
     console.log(`${a.bold}RECENT${a.reset}`);
-    console.log(`${a.dim}────────────────────────────────────────────────────────────────${a.reset}`);
+    console.log(sectionLine);
 
     for (const task of data.recent) {
       const statusIcon = task.status === "done" ? `${a.green}✓${a.reset}` : `${a.red}✗${a.reset}`;
@@ -202,7 +226,7 @@ export function renderDashboard(data: DashboardData, verbose: boolean = false): 
       // Message (what was asked)
       if (task.message) {
         const msg = truncate(task.message, TRUNCATE_WIDTH);
-        console.log(`             ${a.dim}→ ${msg}${a.reset}`);
+        console.log(`  ${a.dim}↳ ${msg}${a.reset}`);
       }
 
       // Result or error
@@ -212,7 +236,7 @@ export function renderDashboard(data: DashboardData, verbose: boolean = false): 
         for (const line of lines) {
           const truncated = truncate(line, TRUNCATE_WIDTH);
           const color = task.status === "done" ? a.dim : a.red;
-          console.log(`             ${color}${truncated}${a.reset}`);
+          console.log(`  ${color}${truncated}${a.reset}`);
         }
       }
 
@@ -226,7 +250,7 @@ export function renderDashboard(data: DashboardData, verbose: boolean = false): 
 
   if (data.idle.length > 0) {
     console.log(`${a.bold}IDLE${a.reset}`);
-    console.log(`${a.dim}────────────────────────────────────────────────────────────────${a.reset}`);
+    console.log(sectionLine);
 
     const idleList = data.idle.join(", ");
     console.log(`${a.gray}${idleList}${a.reset}`);

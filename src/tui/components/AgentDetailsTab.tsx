@@ -71,6 +71,8 @@ const AgentCard: React.FC<{ agent: TeammateState }> = ({ agent }) => {
   const icon = getStatusIcon(agent.status);
   const memfsEnabled = agent.memfsEnabled !== false;
   const rootConversationId = agent.targets?.find(t => t.kind === 'root')?.conversationId;
+  const summary = agent.statusSummary;
+  const activeTodo = agent.todoItems?.find((item) => item.id === summary?.currentTodoId);
 
   return (
     <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
@@ -116,34 +118,37 @@ const AgentCard: React.FC<{ agent: TeammateState }> = ({ agent }) => {
       </Box>
 
       {/* Progress */}
-      {agent.progress !== undefined && (
+      {summary?.progress !== undefined && (
         <Box>
           <Text dimColor>Progress: </Text>
-          <Text color={statusColor}>{formatProgressBar(agent.progress, 20)}</Text>
-          <Text> {agent.progress}%</Text>
-          {agent.progressNote && (
-            <Text dimColor> - {agent.progressNote}</Text>
-          )}
+          <Text color={statusColor}>{formatProgressBar(summary.progress, 20)}</Text>
+          <Text> {summary.progress}%</Text>
         </Box>
       )}
 
       {/* Current Work */}
-      {(agent.currentTask || agent.todo) && (
+      {summary?.message && (
         <Box marginTop={1}>
-          <Text dimColor>Current Task:</Text>
+          <Text dimColor>Status Summary:</Text>
         </Box>
       )}
-      {(agent.currentTask || agent.todo) && (
+      {summary?.message && (
         <Box paddingX={2}>
-          <Text color="yellow">{agent.currentTask || agent.todo}</Text>
+          <Text color="yellow">{summary.phase} - {summary.message}</Text>
+        </Box>
+      )}
+      {activeTodo && (
+        <Box paddingX={2}>
+          <Text dimColor>Current Todo: </Text>
+          <Text>{activeTodo.title}</Text>
         </Box>
       )}
 
       {/* Problem */}
-      {agent.currentProblem && (
+      {summary?.phase === 'blocked' && (
         <Box marginTop={1}>
           <Text dimColor>Problem: </Text>
-          <Text color="red">{agent.currentProblem}</Text>
+          <Text color="red">{summary.message}</Text>
         </Box>
       )}
       {agent.errorDetails && (
@@ -152,29 +157,29 @@ const AgentCard: React.FC<{ agent: TeammateState }> = ({ agent }) => {
         </Box>
       )}
 
-      {/* Pending Tasks */}
-      {agent.pendingTasks && agent.pendingTasks.length > 0 && (
+      {/* Todo Items */}
+      {agent.todoItems && agent.todoItems.length > 0 && (
         <Box marginTop={1} flexDirection="column">
-          <Text dimColor>Pending Tasks ({agent.pendingTasks.length}):</Text>
-          {agent.pendingTasks.slice(0, 5).map((task, i) => (
+          <Text dimColor>Todo Items ({agent.todoItems.length}):</Text>
+          {agent.todoItems.slice(0, 5).map((item, i) => (
             <Box key={i} paddingX={2}>
               <Text dimColor>{i + 1}. </Text>
-              <Text>{truncate(task, 60)}</Text>
+              <Text>{truncate(`[${item.state}] ${item.title}`, 60)}</Text>
             </Box>
           ))}
-          {agent.pendingTasks.length > 5 && (
+          {agent.todoItems.length > 5 && (
             <Box paddingX={2}>
-              <Text dimColor>... and {agent.pendingTasks.length - 5} more</Text>
+              <Text dimColor>... and {agent.todoItems.length - 5} more</Text>
             </Box>
           )}
         </Box>
       )}
 
-      {/* Completed Tasks */}
-      {agent.completedTasks && agent.completedTasks.length > 0 && (
+      {/* Status Events */}
+      {agent.statusEvents && agent.statusEvents.length > 0 && (
         <Box marginTop={1}>
-          <Text dimColor>Completed Tasks: </Text>
-          <Text color="green">{agent.completedTasks.length}</Text>
+          <Text dimColor>Status Events: </Text>
+          <Text color="green">{agent.statusEvents.length}</Text>
         </Box>
       )}
 

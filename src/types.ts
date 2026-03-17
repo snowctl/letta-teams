@@ -59,25 +59,17 @@ export interface TeammateState {
   /** Current status */
   status: TeammateStatus;
 
-  // === Work Tracking ===
-  /** What they're currently working on */
-  currentTask?: string;
-  /** Queue of pending tasks */
-  pendingTasks?: string[];
-  /** Completed tasks */
-  completedTasks?: string[];
+  // === TODO + STATUS Channels ===
+  /** Durable task ownership for this teammate */
+  todoItems?: TodoItem[];
+  /** Current execution summary (heartbeat) */
+  statusSummary?: TeammateExecutionStatus;
+  /** Recent execution events (bounded ring buffer in store) */
+  statusEvents?: StatusEvent[];
 
-  // === Problem Tracking ===
-  /** Current blocker/issue they're stuck on */
-  currentProblem?: string;
-  /** Full error details if status is "error" */
+  // === Error Details ===
+  /** Optional high-level error details when coarse status is "error" */
   errorDetails?: string;
-
-  // === Progress ===
-  /** Progress percentage (0-100) */
-  progress?: number;
-  /** Human-readable progress note (e.g., "3 of 5 files processed") */
-  progressNote?: string;
 
   // === Initialization ===
   /** Background initialization status */
@@ -93,10 +85,6 @@ export interface TeammateState {
   /** ISO timestamp when init completed */
   initCompletedAt?: string;
 
-  // === Legacy (kept for backwards compatibility) ===
-  /** @deprecated Use currentTask instead */
-  todo?: string;
-
   // === Timestamps ===
   /** ISO timestamp of last update */
   lastUpdated: string;
@@ -106,6 +94,47 @@ export interface TeammateState {
 
 export type TeammateStatus = "working" | "idle" | "done" | "error";
 export type InitStatus = "pending" | "running" | "done" | "error" | "skipped";
+
+export type TodoState = 'pending' | 'in_progress' | 'blocked' | 'done' | 'dropped';
+export type TodoPriority = 'low' | 'medium' | 'high';
+
+export interface TodoItem {
+  id: string;
+  title: string;
+  state: TodoState;
+  priority?: TodoPriority;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  blockedReason?: string;
+  notes?: string;
+}
+
+export type StatusPhase = 'idle' | 'planning' | 'implementing' | 'testing' | 'reviewing' | 'blocked' | 'done';
+export type StatusEventType = 'started' | 'progress' | 'code_change' | 'test' | 'blocked' | 'unblocked' | 'done' | 'heartbeat';
+
+export interface StatusEvent {
+  id: string;
+  ts: string;
+  type: StatusEventType;
+  phase: StatusPhase;
+  message: string;
+  todoId?: string;
+  filesTouched?: string[];
+  testsRun?: string;
+  blockedReason?: string;
+}
+
+export interface TeammateExecutionStatus {
+  phase: StatusPhase;
+  message: string;
+  progress?: number;
+  currentTodoId?: string;
+  lastHeartbeatAt: string;
+  lastCodeChangeAt?: string;
+  updatedAt: string;
+}
 
 /**
  * Memfs startup modes

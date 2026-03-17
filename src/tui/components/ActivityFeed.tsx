@@ -1,12 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { TaskState, TeammateState } from '../../types.js';
-import {
-  getTaskStatusIcon,
-  getTaskStatusColor,
-  formatRelativeTime,
-  truncate,
-} from '../utils/format.js';
+import { formatRelativeTime, truncate } from '../utils/format.js';
 
 interface ActivityFeedProps {
   tasks: TaskState[];
@@ -44,21 +39,21 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({ tasks, teammates }) => {
 
   // Add working agents
   for (const agent of teammates) {
-    if (agent.status === 'working' && agent.currentTask) {
+    if (agent.statusSummary?.message) {
       activities.push({
-        timestamp: agent.lastUpdated,
+        timestamp: agent.statusSummary.updatedAt,
         agentName: agent.name,
-        action: 'Working on',
-        detail: truncate(agent.currentTask, 50),
+        action: `${agent.statusSummary.phase}:`,
+        detail: truncate(agent.statusSummary.message, 50),
         status: 'info',
       });
     }
-    if (agent.status === 'error' && agent.currentProblem) {
+    if (agent.statusSummary?.phase === 'blocked') {
       activities.push({
-        timestamp: agent.lastUpdated,
+        timestamp: agent.statusSummary.updatedAt,
         agentName: agent.name,
         action: 'Blocked:',
-        detail: truncate(agent.currentProblem, 50),
+        detail: truncate(agent.statusSummary.message, 50),
         status: 'error',
       });
     }
