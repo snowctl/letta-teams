@@ -14,6 +14,9 @@ export const MEMORY_SYSTEM_DIR = "system";
 const OWNED_MEMFS_FILES = [
   "system/teammate/identity.md",
   "system/teammate/role.md",
+  "system/teammate/contracts.md",
+  "system/teammate/playbooks.md",
+  "system/teammate/quality-bar.md",
   "system/project/context.md",
   "system/init/status.md",
 ] as const;
@@ -152,6 +155,156 @@ ${state.spawnPrompt || "No extra specialization prompt was provided."}
 - Stay focused on this role.
 - Prefer durable heuristics over transient task notes.
 - Avoid drifting into unrelated domains.
+`,
+  );
+
+  writeMemoryFile(
+    state.agentId,
+    "system/teammate/contracts.md",
+    `${renderFrontmatter("Operational teammate contracts for TODO, STATUS, and coordination.")}
+
+## Operating contract
+
+You are expected to execute through durable task ownership and visible heartbeat updates.
+
+### TODO contract
+
+1. Represent owned work as TODO items.
+2. Start TODO before implementation starts.
+3. Block TODO immediately when dependency prevents progress.
+4. Unblock TODO explicitly when dependency clears.
+5. Mark done/drop with concise reason.
+
+Required commands:
+
+\`\`\`bash
+letta-teams todo add ${state.name} "<work item>" --priority high
+letta-teams todo start ${state.name} <todo-id> --message "starting"
+letta-teams todo block ${state.name} <todo-id> --reason "<missing dependency>"
+letta-teams todo unblock ${state.name} <todo-id> --message "dependency resolved"
+letta-teams todo done ${state.name} <todo-id> --message "implemented + validated"
+\`\`\`
+
+### STATUS contract
+
+Use status updates for phase/progress heartbeat and blocker visibility.
+
+\`\`\`bash
+letta-teams status update ${state.name} --phase implementing --message "wired command path" --progress 40 --todo <todo-id>
+letta-teams status update ${state.name} --phase testing --message "running regression suite" --tests "npm test" --progress 80 --todo <todo-id>
+letta-teams status checkin ${state.name} --message "still running migration pass"
+\`\`\`
+
+### Coordination contract
+
+- Use message for one-to-one dependencies.
+- Use broadcast only for changes relevant to multiple teammates.
+- Include acceptance criteria in dependency requests.
+- Never stay blocked silently.
+
+### Completion contract
+
+Final response format:
+
+\`\`\`
+OUTCOME: done|partial|blocked
+CHANGES:
+- <files>
+
+VALIDATION:
+- <command> (pass|fail|skipped)
+
+RISKS:
+- <0-3 bullets>
+
+NEXT:
+- <single concrete next action>
+\`\`\`
+`,
+  );
+
+  writeMemoryFile(
+    state.agentId,
+    "system/teammate/playbooks.md",
+    `${renderFrontmatter("Reusable execution playbooks for teammate workflows.")}
+
+## Execution loop playbook
+
+1. Clarify target output and acceptance criteria.
+2. Add TODO item(s) for concrete ownership.
+3. Start active TODO and emit STATUS implementing.
+4. Implement in minimal scoped changes.
+5. Validate with project commands.
+6. Mark TODO done and emit STATUS done.
+7. Return structured completion contract.
+
+## Blocker playbook
+
+When blocked:
+
+1. TODO -> blocked with precise dependency.
+2. STATUS -> blocked with concise reason.
+3. Message owner with exact ask + acceptance criteria.
+4. If cross-team impact exists, broadcast impact summary.
+5. Resume immediately after unblock and emit status update.
+
+## Dependency request template
+
+Use this structure when messaging teammates:
+
+- Need: <single explicit dependency>
+- Context: <what this unblocks>
+- Acceptance: <what counts as done>
+- Urgency: <now|soon|can wait>
+
+## Review/verification playbook
+
+Before claiming done:
+
+- Confirm file-level changes match requested scope.
+- Confirm lint/type/test outcomes are reported.
+- Confirm no unrelated refactors slipped in.
+- Confirm risks are explicitly listed if any remain.
+`,
+  );
+
+  writeMemoryFile(
+    state.agentId,
+    "system/teammate/quality-bar.md",
+    `${renderFrontmatter("Durable engineering quality standards for this teammate.")}
+
+## Engineering quality bar
+
+- Read before edit.
+- Match existing architecture and style.
+- Keep implementations narrow and task-focused.
+- Prefer practical fixes over speculative abstractions.
+
+## Validation quality bar
+
+Default validation sequence:
+
+1. lint/type checks
+2. tests
+3. targeted smoke checks
+
+If validation is skipped, report exactly what is unverified and why.
+
+## Communication quality bar
+
+- Keep status updates compact and factual.
+- Keep completion output structured and parseable.
+- Never imply completion when blockers remain.
+
+## Anti-pattern guardrail
+
+Avoid:
+
+- silent execution with no status
+- stale TODO lifecycle state
+- vague blocker reporting
+- unrelated code changes
+- verbose narrative without actionable summary
 `,
   );
 

@@ -36,6 +36,9 @@ describe('memfs', () => {
     expect(getOwnedMemfsFiles()).toEqual([
       'system/teammate/identity.md',
       'system/teammate/role.md',
+      'system/teammate/contracts.md',
+      'system/teammate/playbooks.md',
+      'system/teammate/quality-bar.md',
       'system/project/context.md',
       'system/init/status.md',
     ]);
