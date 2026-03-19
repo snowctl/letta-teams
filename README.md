@@ -7,12 +7,17 @@
 
 A CLI interface for Letta Code and LettaBot agents to orchestrate teams of stateful AI agents. Spawn specialized teammates, dispatch parallel tasks, and coordinate work across multiple agents with persistent memory.
 
-## Skill Install (Primary)
+## Installation + Skill Setup (Primary)
 
-Use `letta-teams skill add` to install the `letta-teams` skill into project, agent, or global scope.
+Install the CLI and then install the `letta-teams` skill into your preferred scope.
 
 ```bash
-# Project scope (default): <resolved-project-dir>/.skills/
+# Install CLI
+npm install -g letta-teams
+```
+
+```bash
+# Add skill (project scope by default): <resolved-project-dir>/.skills/
 letta-teams skill add letta-teams --scope project
 
 # Agent scope: ~/.letta/agents/<id>/skills/
@@ -73,13 +78,7 @@ Letta Teams provides a command-line interface that AI agents can use to manage t
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Installation
-
-```bash
-npm install -g letta-teams
-```
-
-Agents can then invoke `letta-teams` commands via the Bash tool.
+Agents can invoke `letta-teams` commands via the Bash tool after installation.
 
 ## Required First Step
 
@@ -89,21 +88,6 @@ Before running orchestration commands, start the daemon:
 letta-teams daemon --start
 letta-teams daemon --status
 ```
-
-## Skill Integration
-
-Load the skill file to give any Letta Code agent the ability to orchestrate teams:
-
-```
-@skills/letta-teams
-```
-
-The skill provides:
-- Complete command reference with syntax and examples
-- Workflow patterns for parallel execution and coordination
-- Progress tracking and task management
-- Best practices for role definition and delegation
-
 
 ## Core Concepts
 

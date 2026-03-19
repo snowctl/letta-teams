@@ -732,9 +732,13 @@ export function updateStatusSummary(
 export function getRecentStatusEvents(name: string, limit: number = 20): StatusEvent[] {
   const state = loadTeammate(name);
   if (!state?.statusEvents) return [];
-  return [...state.statusEvents]
-    .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
-    .slice(0, limit);
+
+  const events = state.statusEvents;
+  if (limit <= 0) return [];
+
+  // statusEvents are appended in chronological order, so take the tail and reverse.
+  // This avoids timestamp-tie instability when multiple events share the same millisecond.
+  return events.slice(Math.max(0, events.length - limit)).reverse();
 }
 
 export function findStaleTeammates(maxSilentMinutes: number): TeammateState[] {
