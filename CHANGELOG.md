@@ -1,5 +1,12 @@
 # Changelog
 
+# [0.7.0](https://github.com/Vedant020000/letta-teams/compare/v0.6.0...v0.7.0) (2026-03-19)
+
+
+### Features
+
+* **council:** use disposable reviewer agent for final council decisions ([29aed49](https://github.com/Vedant020000/letta-teams/commit/29aed494bf0ca0da2341da049976a0e246b08a36))
+
 # [0.6.0](https://github.com/Vedant020000/letta-teams/compare/v0.5.1...v0.6.0) (2026-03-19)
 
 
