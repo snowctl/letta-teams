@@ -414,6 +414,7 @@ export async function spawnTeammateViaDaemon(
   role: string,
   options?: {
     model?: string;
+    contextWindowLimit?: number;
     spawnPrompt?: string;
     skipInit?: boolean;
     memfsEnabled?: boolean;
@@ -428,6 +429,7 @@ export async function spawnTeammateViaDaemon(
       name,
       role,
       model: options?.model,
+      contextWindowLimit: options?.contextWindowLimit,
       spawnPrompt: options?.spawnPrompt,
       skipInit: options?.skipInit,
       memfsEnabled: options?.memfsEnabled,

@@ -160,6 +160,10 @@ letta-teams spawn reviewer "Code reviewer who catches bugs and suggests improvem
 # Use a specific model
 letta-teams spawn architect "System architect" --model claude-sonnet-4-20250514
 
+# Control context window size (tokens)
+letta-teams spawn architect "System architect" --context-window 32000
+letta-teams spawn architect "System architect" --context-window 4096
+
 # Add specialization for background memory initialization
 letta-teams spawn architect "System architect" --spawn-prompt "Focus on system design reviews and API boundaries"
 

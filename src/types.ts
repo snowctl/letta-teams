@@ -36,6 +36,8 @@ export interface TeammateState {
   agentId: string;
   /** Model used by the agent */
   model?: string;
+  /** Context window limit override in tokens */
+  contextWindowLimit?: number;
   /** Rich spawn prompt used for background memory initialization */
   spawnPrompt?: string;
   /** All conversation targets for this teammate */
@@ -288,6 +290,7 @@ export type DaemonMessage =
       name: string;
       role: string;
       model?: string;
+      contextWindowLimit?: number;
       spawnPrompt?: string;
       skipInit?: boolean;
       memfsEnabled?: boolean;

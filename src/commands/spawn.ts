@@ -6,11 +6,20 @@ import { teammateExists, removeTeammate } from "../store.js";
 import { ensureDaemonRunning, spawnTeammateViaDaemon, reinitTeammateViaDaemon, waitForTask } from "../ipc.js";
 import { parseMemfsStartup } from "../types.js";
 
+function parseContextWindow(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error("Context window must be a positive integer token count");
+  }
+  return parsed;
+}
+
 export function registerSpawnCommands(program: Command): void {
   program
     .command("spawn <name> <role>")
     .description("Create a teammate with a root conversation target and optional background memory init")
     .option("--model <model>", "Model to use (e.g. claude-sonnet-4-20250514, zai/glm-5)")
+    .option("--context-window <tokens>", "Context window limit in tokens")
     .option("--spawn-prompt <text>", "Extra specialization prompt passed to background memory initialization")
     .option("--memfs-startup <mode>", "Memfs startup mode: blocking|background|skip")
     .option("--skip-init", "Skip background memory initialization entirely")
@@ -20,6 +29,7 @@ export function registerSpawnCommands(program: Command): void {
 
 Examples:
   $ letta-teams spawn backend "Backend engineer"
+  $ letta-teams spawn backend "Backend engineer" --context-window 32000
   $ letta-teams spawn backend "Backend engineer" --spawn-prompt "Focus on auth systems and migrations"
   $ letta-teams spawn backend "Backend engineer" --skip-init --no-memfs
 `)
@@ -46,8 +56,11 @@ Examples:
         await ensureDaemonRunning();
 
         // Spawn via daemon
+        const contextWindowLimit = options.contextWindow ? parseContextWindow(options.contextWindow) : undefined;
+
         const state = await spawnTeammateViaDaemon(name, role, {
           model: options.model,
+          contextWindowLimit,
           spawnPrompt: options.spawnPrompt,
           skipInit: options.skipInit,
           memfsEnabled: !options.noMemfs,
@@ -61,6 +74,9 @@ Examples:
           console.log(`  Agent ID: ${state.agentId}`);
           console.log(`  Role: ${state.role}`);
           if (state.model) console.log(`  Model: ${state.model}`);
+          if (state.contextWindowLimit) {
+            console.log(`  Context window: ${state.contextWindowLimit.toLocaleString()} tokens`);
+          }
           console.log(`  Memfs: ${state.memfsEnabled === false ? "disabled" : "enabled"}`);
           if (state.initStatus) console.log(`  Init: ${state.initStatus}`);
         }

@@ -213,6 +213,7 @@ export function updateTeammate(
       | "status"
       | "role"
       | "model"
+      | "contextWindowLimit"
       | "lastUpdated"
       | "todoItems"
       | "statusSummary"

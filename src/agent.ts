@@ -298,6 +298,7 @@ export function checkApiKey(): void {
  */
 export interface SpawnOptions {
   model?: string;
+  contextWindowLimit?: number;
   spawnPrompt?: string;
   skipInit?: boolean;
   memfsEnabled?: boolean;
@@ -662,6 +663,7 @@ export async function spawnTeammate(
   const memfsEnabled = options.memfsEnabled ?? true;
   const initStatus = options.skipInit ? "skipped" : "pending";
   validateMemfsStartup(options.memfsStartup);
+  const contextWindowLimit = options.contextWindowLimit;
   checkApiKey();
   validateName(name);
 
@@ -685,6 +687,7 @@ export async function spawnTeammate(
           tags: [`name:${name}`, "origin:letta-teams"],
           memory: teammateBlocks,
           memfs: memfsEnabled,
+          contextWindowLimit,
         }),
       { maxAttempts: 3, baseDelayMs: 2000 }
     );
@@ -723,6 +726,7 @@ export async function spawnTeammate(
       role,
       agentId,
       model,
+      contextWindowLimit,
       spawnPrompt: options.spawnPrompt,
       targets: [
         {

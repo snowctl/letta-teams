@@ -438,6 +438,7 @@ async function handleMessage(msg: DaemonMessage): Promise<DaemonResponse> {
         checkApiKey();
         const teammate = await spawnTeammate(msg.name, msg.role, {
           model: msg.model,
+          contextWindowLimit: msg.contextWindowLimit,
           spawnPrompt: msg.spawnPrompt,
           skipInit: msg.skipInit,
           memfsEnabled: msg.memfsEnabled,

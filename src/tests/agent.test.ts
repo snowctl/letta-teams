@@ -122,6 +122,32 @@ describe('agent', () => {
       expect(state.model).toBe('claude-sonnet-4-20250514');
     });
 
+    it('should pass context window limit when provided', async () => {
+      vi.mocked(createAgent).mockResolvedValue('agent-context123');
+
+      const mockSession = {
+        send: vi.fn().mockResolvedValue(undefined),
+        stream: vi.fn().mockImplementation(async function* () {
+          yield { type: 'result', result: 'OK' };
+        }),
+        conversationId: 'conv-ctx',
+        [Symbol.asyncDispose]: vi.fn(),
+      };
+      vi.mocked(createSession).mockReturnValue(mockSession as any);
+
+      const state = await spawnTeammate('ctx-agent', 'Context tester', {
+        contextWindowLimit: 64000,
+      });
+
+      expect(createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          contextWindowLimit: 64000,
+        })
+      );
+
+      expect(state.contextWindowLimit).toBe(64000);
+    });
+
     it('should persist init and memfs configuration', async () => {
       vi.mocked(createAgent).mockResolvedValue('agent-init123');
 

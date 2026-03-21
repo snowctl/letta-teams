@@ -3,11 +3,17 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Command } from 'commander';
 
+import { getBuiltInSkill, builtInSkillNames } from '../data/skills.js';
 import { handleCliError } from '../utils/errors.js';
 
 type SkillScope = 'project' | 'agent' | 'global';
 
 const SKILL_SCOPES: readonly SkillScope[] = ['project', 'agent', 'global'] as const;
+
+type ResolvedSkillSource = {
+  content: string;
+  source: string;
+};
 
 function parseScope(value: string | undefined): SkillScope {
   if (!value) return 'project';
@@ -80,19 +86,33 @@ function resolveScopeDir(scope: SkillScope): string {
   }
 }
 
-function resolveSourceSkillPath(skillName: string): string {
-  const candidates = [
+export function resolveSkillSource(skillName: string): ResolvedSkillSource {
+  const candidatePaths = [
     path.join(process.cwd(), 'skills', `${skillName}.md`),
     path.join(process.cwd(), '.skills', skillName, 'SKILL.md'),
   ];
 
-  const found = candidates.find((candidate) => fs.existsSync(candidate));
-  if (!found) {
-    throw new Error(
-      `Skill '${skillName}' not found. Expected one of: ${candidates.join(', ')}`,
-    );
+  for (const candidate of candidatePaths) {
+    if (fs.existsSync(candidate)) {
+      return {
+        content: fs.readFileSync(candidate, 'utf-8'),
+        source: candidate,
+      };
+    }
   }
-  return found;
+
+  const builtIn = getBuiltInSkill(skillName);
+  if (builtIn) {
+    return {
+      content: builtIn.content,
+      source: builtIn.sourceLabel,
+    };
+  }
+
+  const builtInList = builtInSkillNames.length > 0 ? builtInSkillNames.join(', ') : 'none';
+  throw new Error(
+    `Skill '${skillName}' not found. Checked: ${candidatePaths.join(', ')}. Built-in skills: ${builtInList}`,
+  );
 }
 
 export function registerSkillCommands(program: Command): void {
@@ -110,7 +130,7 @@ export function registerSkillCommands(program: Command): void {
 
       try {
         const scope = parseScope(options.scope);
-        const sourcePath = resolveSourceSkillPath(skillName);
+        const resolvedSource = resolveSkillSource(skillName);
         const scopeDir = resolveScopeDir(scope);
         const skillDir = path.join(scopeDir, skillName);
         const targetPath = path.join(skillDir, 'SKILL.md');
@@ -122,13 +142,12 @@ export function registerSkillCommands(program: Command): void {
         }
 
         fs.mkdirSync(skillDir, { recursive: true });
-        const sourceContent = fs.readFileSync(sourcePath, 'utf-8');
-        fs.writeFileSync(targetPath, sourceContent);
+        fs.writeFileSync(targetPath, resolvedSource.content);
 
         const result = {
           skill: skillName,
           scope,
-          sourcePath,
+          source: resolvedSource.source,
           targetPath,
           projectRoot: scope === 'project' ? resolveProjectRoot() : undefined,
         };
@@ -137,7 +156,7 @@ export function registerSkillCommands(program: Command): void {
           console.log(JSON.stringify(result, null, 2));
         } else {
           console.log(`✓ Added skill '${skillName}' (${scope})`);
-          console.log(`  Source: ${sourcePath}`);
+          console.log(`  Source: ${resolvedSource.source}`);
           console.log(`  Target: ${targetPath}`);
         }
       } catch (error) {
