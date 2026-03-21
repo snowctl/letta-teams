@@ -3,6 +3,7 @@ import type { Command } from "commander";
 import { validateName } from "../agent.js";
 import { listTeammates, teammateExists, targetExists } from "../store.js";
 import { ensureDaemonRunning, dispatchTask, waitForTask, forkTeammateViaDaemon } from "../ipc.js";
+import type { TaskState } from "../types.js";
 import { validateTargetName } from "../targets.js";
 
 export function registerMessagingCommands(program: Command): void {
@@ -122,6 +123,12 @@ Examples:
     .option("--to <names>", "Comma-separated list of teammate or target names to message")
     .option("--exclude <names>", "Comma-separated list of teammate or target names to exclude")
     .option("-w, --wait", "Wait for all tasks to complete and show results")
+    .option("--review-by <name>", "Route worker results to reviewer target before completion")
+    .option("--gate <policy>", "Review gate policy: on_success (default) or always", "on_success")
+    .option("--review-template <name>", "Optional review template to load")
+    .option("--review-by <name>", "Route worker results to reviewer target before completion")
+    .option("--gate <policy>", "Review gate policy: on_success (default) or always", "on_success")
+    .option("--review-template <name>", "Optional review template to load")
     .addHelpText('after', `
 
 Examples:
@@ -176,7 +183,6 @@ Examples:
         }
 
         if (options.wait) {
-          // Wait for all tasks to complete
           if (!globalOpts.json) {
             console.log(`Waiting for ${taskIds.length} teammates...\n`);
           }
@@ -193,9 +199,8 @@ Examples:
             };
           }
 
-          if (globalOpts.json) {
-            console.log(JSON.stringify(results, null, 2));
-          } else {
+          // Review gating is not supported for broadcast
+          if (!globalOpts.json) {
             for (const [name, result] of Object.entries(results)) {
               if (result.status === "error") {
                 console.log(`\n[${name}] Error: ${result.error}`);
@@ -203,6 +208,8 @@ Examples:
                 console.log(`\n[${name}]\n${result.result || "(done)"}`);
               }
             }
+          } else {
+            console.log(JSON.stringify(results, null, 2));
           }
         } else {
           // Fire and forget
@@ -279,15 +286,47 @@ Examples:
         // Ensure daemon is running
         await ensureDaemonRunning();
 
+        if (options.reviewBy || options.gate !== undefined || options.reviewTemplate) {
+          handleError(new Error('Broadcast does not support review gating. Use dispatch instead.'), globalOpts.json);
+          return;
+        }
+
         // Dispatch to all teammates
         const taskIds: { name: string; taskId: string }[] = [];
+        const assignmentList = Array.from(messages.entries()).map(([name, message]) => ({ name, message }));
+
+        let reviewTarget: string | undefined;
+        let gatePolicy: "on_success" | "always" = options.gate === "always" ? "always" : "on_success";
+        const reviewTemplate: string | undefined = options.reviewTemplate;
+        if (options.reviewBy) {
+          validateTargetName(options.reviewBy);
+          if (!targetExists(options.reviewBy)) {
+            throw new Error(`Reviewer target '${options.reviewBy}' not found`);
+          }
+          reviewTarget = options.reviewBy;
+        }
+
+        const pipelineId = reviewTarget
+          ? `pipeline-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+          : undefined;
 
         for (const [name, message] of messages) {
           validateTargetName(name);
           if (!targetExists(name)) {
             throw new Error(`Target '${name}' not found`);
           }
-          const { taskId } = await dispatchTask(name, message);
+          const { taskId } = await dispatchTask(name, message, {
+            pipelineId,
+            review:
+              reviewTarget && pipelineId
+                ? {
+                    reviewer: reviewTarget,
+                    gate: gatePolicy,
+                    template: reviewTemplate,
+                    assignments: assignmentList,
+                  }
+                : undefined,
+          });
           taskIds.push({ name, taskId });
         }
 

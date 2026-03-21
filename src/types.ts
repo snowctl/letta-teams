@@ -176,7 +176,15 @@ export function parseMemfsStartup(value: string | undefined): MemfsStartup | und
 /**
  * Task status for daemon operations
  */
-export type TaskStatus = "pending" | "running" | "done" | "error";
+export type TaskStatus =
+  | "pending"
+  | "running"
+  | "done"
+  | "error"
+  | "pending_review"
+  | "reviewing"
+  | "approved"
+  | "rejected";
 
 /**
  * Task kind for distinguishing user-facing work from internal lifecycle tasks
@@ -228,6 +236,18 @@ export interface TaskState {
   message: string;
   /** Task kind (may be absent on legacy tasks) */
   kind?: TaskKind;
+  /** Identifier for grouped workflow (e.g., dispatch pipeline) */
+  pipelineId?: string;
+  /** Whether this task participates in a review gate */
+  requiresReview?: boolean;
+  /** Reviewer teammate target name */
+  reviewTarget?: string;
+  /** Review gate policy */
+  reviewGatePolicy?: "on_success" | "always";
+  /** ID of task created for reviewer */
+  reviewTaskId?: string;
+  /** Aggregated review status */
+  reviewStatus?: TaskStatus;
   /** Current status */
   status: TaskStatus;
   /** Result from the agent (when done) */
@@ -250,7 +270,19 @@ export interface TaskState {
  * IPC message types for daemon communication
  */
 export type DaemonMessage =
-  | { type: "dispatch"; targetName: string; message: string; projectDir: string }
+  | {
+      type: "dispatch";
+      targetName: string;
+      message: string;
+      projectDir: string;
+      pipelineId?: string;
+      review?: {
+        reviewer: string;
+        gate: "on_success" | "always";
+        template?: string;
+        assignments: { name: string; message: string }[];
+      };
+    }
   | {
       type: "spawn";
       name: string;

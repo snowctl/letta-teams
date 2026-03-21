@@ -21,6 +21,7 @@ import {
   updateTask,
   getTask,
   listRecentTasks,
+  listTasks,
   loadTasks,
   saveTasks,
   getGlobalAuthDir,
@@ -392,10 +393,17 @@ async function handleMessage(msg: DaemonMessage): Promise<DaemonResponse> {
         rootTeammateName: parsed.rootName,
         targetName: msg.targetName,
         kind: 'work',
+        pipelineId: msg.pipelineId,
+        requiresReview: Boolean(msg.review),
+        reviewTarget: msg.review?.reviewer,
+        reviewGatePolicy: msg.review?.gate,
       });
 
       // Start processing in background (don't await)
-      processTask(task.id, msg.targetName, msg.message).catch((error) => {
+      processTask(task.id, msg.targetName, msg.message, {
+        pipelineId: msg.pipelineId,
+        review: msg.review,
+      }).catch((error) => {
         console.error(`Task ${task.id} failed:`, error);
       });
 
@@ -569,10 +577,21 @@ async function handleMessage(msg: DaemonMessage): Promise<DaemonResponse> {
 /**
  * Process a task by messaging the teammate
  */
-async function processTask(
+interface ProcessTaskOptions {
+  pipelineId?: string;
+  review?: {
+    reviewer: string;
+    gate: "on_success" | "always";
+    template?: string;
+    assignments: { name: string; message: string }[];
+  };
+}
+
+export async function processTask(
   taskId: string,
   targetName: string,
-  message: string
+  message: string,
+  options: ProcessTaskOptions = {}
 ): Promise<void> {
   const startedAt = new Date().toISOString();
 
@@ -622,9 +641,7 @@ async function processTask(
       },
     });
 
-    // Update task with result and tool calls
-    updateTask(taskId, {
-      status: "done",
+    const completionPayload: Partial<TaskState> = {
       result,
       completedAt: new Date().toISOString(),
       toolCalls,
@@ -632,21 +649,97 @@ async function processTask(
         parseTargetName(targetName).rootName,
         parseTargetName(targetName).fullName,
       )?.conversationId,
-    });
+    };
+
+    if (options.pipelineId && options.review) {
+      updateTask(taskId, {
+        ...completionPayload,
+        status: "pending_review",
+        reviewStatus: "pending_review",
+      });
+      await triggerReviewIfReady(options.pipelineId, options.review);
+    } else {
+      updateTask(taskId, {
+        ...completionPayload,
+        status: "done",
+      });
+    }
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : String(error);
 
     // Update task with error and tool calls
-    updateTask(taskId, {
-      status: "error",
-      error: errorMessage,
-      completedAt: new Date().toISOString(),
-      toolCalls,
-    });
+    if (options.pipelineId && options.review) {
+      updateTask(taskId, {
+        status: "rejected",
+        error: errorMessage,
+        completedAt: new Date().toISOString(),
+        toolCalls,
+      });
+      await triggerReviewIfReady(options.pipelineId, options.review);
+    } else {
+      updateTask(taskId, {
+        status: "error",
+        error: errorMessage,
+        completedAt: new Date().toISOString(),
+        toolCalls,
+      });
+    }
   } finally {
     runningTasks.delete(taskId);
   }
+}
+
+async function triggerReviewIfReady(
+  pipelineId: string,
+  options: Required<ProcessTaskOptions>["review"]
+): Promise<void> {
+  const tasks = listTasks();
+  const pipelineTasks = tasks.filter((task) => task.pipelineId === pipelineId);
+
+  if (pipelineTasks.length === 0) {
+    return;
+  }
+
+  const pending = pipelineTasks.some((task) => task.status === "pending" || task.status === "running");
+  if (pending) {
+    return;
+  }
+
+  if (options.gate === "on_success") {
+    const failed = pipelineTasks.some((task) => task.status === "error" || task.status === "rejected");
+    if (failed) {
+      return;
+    }
+  }
+
+  const reviewPayload = pipelineTasks
+    .map((task) => `## ${task.targetName ?? task.teammateName}\nStatus: ${task.status}\nResult: ${task.result ?? task.error ?? "(none)"}`)
+    .join("\n\n");
+
+  const assignmentSummary = options.assignments
+    .map((assignment) => `- ${assignment.name}: ${assignment.message}`)
+    .join("\n");
+
+  const reviewMessage = `You are acting as a reviewer. Evaluate worker outputs and summarize issues before approving or rejecting.\n\n### Assignments\n${assignmentSummary}\n\n### Worker Results\n${reviewPayload}`;
+
+  const reviewTask = createTask(options.reviewer, reviewMessage, {
+    rootTeammateName: parseTargetName(options.reviewer).rootName,
+    targetName: options.reviewer,
+    kind: 'work',
+    pipelineId,
+  });
+
+  for (const task of pipelineTasks) {
+    updateTask(task.id, {
+      reviewTaskId: reviewTask.id,
+      reviewStatus: "reviewing",
+    });
+  }
+
+  processTask(reviewTask.id, options.reviewer, reviewMessage).catch((error) => {
+    console.error(`Review task ${reviewTask.id} failed:`, error);
+  });
 }
 
 /**

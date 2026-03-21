@@ -286,13 +286,24 @@ export async function sendToDaemon(
 export async function dispatchTask(
   targetName: string,
   message: string,
-  projectDir?: string
+  options?: {
+    projectDir?: string;
+    pipelineId?: string;
+    review?: {
+      reviewer: string;
+      gate: "on_success" | "always";
+      template?: string;
+      assignments: { name: string; message: string }[];
+    };
+  }
 ): Promise<{ taskId: string }> {
   const response = await sendToDaemon({
     type: "dispatch",
     targetName,
     message,
-    projectDir: projectDir ?? process.cwd(),
+    projectDir: options?.projectDir ?? process.cwd(),
+    pipelineId: options?.pipelineId,
+    review: options?.review,
   });
 
   if (response.type !== "accepted") {
@@ -366,7 +377,12 @@ export async function waitForTask(
       throw new Error(`Task ${taskId} not found`);
     }
 
-    if (task.status === "done" || task.status === "error") {
+    if (
+      task.status === "done" ||
+      task.status === "error" ||
+      task.status === "approved" ||
+      task.status === "rejected"
+    ) {
       return task;
     }
 

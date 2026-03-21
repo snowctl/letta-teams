@@ -61,7 +61,18 @@ export function getTask(taskId: string): TaskState | null {
 export function createTask(
   teammateName: string,
   message: string,
-  metadata?: Pick<TaskState, 'rootTeammateName' | 'targetName' | 'conversationId'> & { kind?: TaskKind },
+  metadata?: Pick<
+    TaskState,
+    | 'rootTeammateName'
+    | 'targetName'
+    | 'conversationId'
+    | 'pipelineId'
+    | 'requiresReview'
+    | 'reviewTarget'
+    | 'reviewGatePolicy'
+    | 'reviewTaskId'
+    | 'reviewStatus'
+  > & { kind?: TaskKind },
 ): TaskState {
   const tasks = loadTasks();
   const taskId = generateTaskId();
@@ -72,6 +83,12 @@ export function createTask(
     rootTeammateName: metadata?.rootTeammateName,
     targetName: metadata?.targetName,
     conversationId: metadata?.conversationId,
+    pipelineId: metadata?.pipelineId,
+    requiresReview: metadata?.requiresReview,
+    reviewTarget: metadata?.reviewTarget,
+    reviewGatePolicy: metadata?.reviewGatePolicy,
+    reviewTaskId: metadata?.reviewTaskId,
+    reviewStatus: metadata?.reviewStatus,
     message,
     kind: metadata?.kind,
     status: "pending",
@@ -89,7 +106,28 @@ export function createTask(
  */
 export function updateTask(
   taskId: string,
-  updates: Partial<Pick<TaskState, "status" | "result" | "error" | "startedAt" | "completedAt" | "toolCalls" | "conversationId" | "targetName" | "rootTeammateName" | "initEvents" | "kind">>
+  updates: Partial<
+    Pick<
+      TaskState,
+      | "status"
+      | "result"
+      | "error"
+      | "startedAt"
+      | "completedAt"
+      | "toolCalls"
+      | "conversationId"
+      | "targetName"
+      | "rootTeammateName"
+      | "initEvents"
+      | "kind"
+      | "pipelineId"
+      | "requiresReview"
+      | "reviewTarget"
+      | "reviewGatePolicy"
+      | "reviewTaskId"
+      | "reviewStatus"
+    >
+  >
 ): TaskState | null {
   const tasks = loadTasks();
   const task = tasks[taskId];
