@@ -126,9 +126,6 @@ Examples:
     .option("--review-by <name>", "Route worker results to reviewer target before completion")
     .option("--gate <policy>", "Review gate policy: on_success (default) or always", "on_success")
     .option("--review-template <name>", "Optional review template to load")
-    .option("--review-by <name>", "Route worker results to reviewer target before completion")
-    .option("--gate <policy>", "Review gate policy: on_success (default) or always", "on_success")
-    .option("--review-template <name>", "Optional review template to load")
     .addHelpText('after', `
 
 Examples:
