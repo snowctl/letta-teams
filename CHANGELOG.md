@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/Vedant020000/letta-teams/compare/v0.8.1...v0.8.2) (2026-03-25)
+
+
+### Bug Fixes
+
+* support self-hosted Letta servers with configurable model and working --no-memfs ([f2ad631](https://github.com/Vedant020000/letta-teams/commit/f2ad631e694da2390f59b70f77e64879295789f9))
+
 ## [0.8.1](https://github.com/Vedant020000/letta-teams/compare/v0.8.0...v0.8.1) (2026-03-21)
 
 
