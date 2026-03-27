@@ -7,6 +7,8 @@
 
 A CLI interface for Letta Code and LettaBot agents to orchestrate teams of stateful AI agents. Spawn specialized teammates, dispatch parallel tasks, and coordinate work across multiple agents with persistent memory.
 
+![Letta Teams preview](./assets/preview.png)
+
 ## Overview
 
 Letta Teams helps agents collaborate like a real team, not a single overloaded worker.

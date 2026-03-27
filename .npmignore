@@ -28,6 +28,7 @@ docs/
 letta-code/
 letta-code-sdk/
 letta-node/
+assets/preview.png
 
 # Build artifacts
 *.tsbuildinfo
