@@ -43,6 +43,11 @@ export async function cancelRunsForCouncil(teammates: TeammateState[]): Promise<
           cancelledConversations += 1;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
+          // 409 CONFLICT with "No active runs to cancel" means the run already completed.
+          // This is not a real error - the desired state (no active run) is already achieved.
+          if (message.includes('409') || message.includes('No active runs to cancel')) {
+            continue;
+          }
           warnings.push(`Failed to cancel ${target.name}: ${message}`);
         }
       }
